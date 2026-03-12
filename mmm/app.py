@@ -183,6 +183,40 @@ def build_labeled_bar_chart(
     return (bars + labels).properties(title=title, height=max(180, 36 * len(df)))
 
 
+def compute_display_attribution(
+    result: Any,
+    actual_total: float,
+) -> tuple[dict[str, float], float, float]:
+    raw_channel_totals = {
+        channel: max(float(result.contribution[channel].sum()), 0.0)
+        for channel in result.channel_names
+    }
+    raw_baseline_total = max(float(result.baseline.sum()), 0.0)
+    raw_explained_total = sum(raw_channel_totals.values()) + raw_baseline_total
+
+    if math.isclose(actual_total, 0.0) or math.isclose(raw_explained_total, 0.0):
+        return (
+            {channel: 0.0 for channel in result.channel_names},
+            0.0,
+            max(actual_total, 0.0),
+        )
+
+    scale_factor = min(1.0, actual_total / raw_explained_total)
+    display_channel_totals = {
+        channel: value * scale_factor for channel, value in raw_channel_totals.items()
+    }
+    display_baseline_total = raw_baseline_total * scale_factor
+    display_unexplained_total = max(
+        actual_total - (sum(display_channel_totals.values()) + display_baseline_total),
+        0.0,
+    )
+
+    if math.isclose(display_unexplained_total, 0.0, abs_tol=0.5):
+        display_unexplained_total = 0.0
+
+    return display_channel_totals, display_baseline_total, display_unexplained_total
+
+
 def load_candidate_dataframe() -> pd.DataFrame | None:
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
 
@@ -691,12 +725,11 @@ def render_results_tab() -> None:
     st.session_state["selected_model"] = selected_model
     result = st.session_state["model_results"][selected_model]
     actual_total = float(st.session_state["y"].sum())
-    model_total = float(result.y_pred.sum())
-    media_total = sum(float(series.sum()) for series in result.contribution.values())
-    baseline_total = float(result.baseline.sum())
-    unexplained_total = actual_total - model_total
-    if math.isclose(unexplained_total, 0.0, abs_tol=0.5):
-        unexplained_total = 0.0
+    display_channel_totals, baseline_total, unexplained_total = compute_display_attribution(
+        result,
+        actual_total,
+    )
+    media_total = sum(display_channel_totals.values())
     unexplained_share = (
         (unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
     )
@@ -760,18 +793,18 @@ def render_results_tab() -> None:
     col2.metric(
         "Media leads",
         format_number(media_total),
-        help="Leads attributed to the selected media channels by the model.",
+        help="Displayed share of actual leads attributed to media after bounding the decomposition to total leads.",
     )
     col3.metric(
         "Baseline leads",
         format_number(baseline_total),
-        help="Leads explained by the baseline part of the model, such as intercept and controls.",
+        help="Displayed share of actual leads attributed to baseline and control effects.",
     )
     col4.metric(
         "Unexplained gap",
         format_signed_number(unexplained_total),
         f"{unexplained_share:.1f}%",
-        help="Difference between actual total leads and the modelled total. Smaller is better.",
+        help="Remaining portion of actual leads that is not explained by the displayed media and baseline split.",
     )
     col5, col6 = st.columns(2)
     col5.metric(
@@ -817,13 +850,15 @@ def render_results_tab() -> None:
     st.caption("Use this section to explain channel efficiency. Focus on CPL, contribution, and how much each channel accounts for in the selected model.")
     why_rows: list[dict[str, Any]] = []
     for channel in st.session_state["selected_visual_channels"]:
-        contribution_total = float(result.contribution[channel].sum())
+        contribution_total = float(display_channel_totals.get(channel, 0.0))
         row = {
             "Channel": channel,
             "Coefficient": round(float(result.coefficients[channel]), 4),
             "CPL": format_cpl(result.cpl[channel]),
             "Contribution": round(contribution_total, 2),
-            "Share": round(float(result.contribution_pct[channel]) * 100, 2),
+            "Share": round((contribution_total / actual_total) * 100, 2)
+            if not math.isclose(actual_total, 0.0)
+            else 0.0,
         }
         if result.coefficient_lower is not None:
             row["Coefficient lower"] = round(float(result.coefficient_lower[channel]), 4)
@@ -915,7 +950,7 @@ def render_results_tab() -> None:
 
     with st.expander("Quick Insights", expanded=False):
         st.caption("This section condenses the most useful summary points into a small set of operational metrics.")
-        media_total = sum(float(result.contribution[ch].sum()) for ch in result.channel_names)
+        media_total = sum(display_channel_totals.values())
         spend_total = float(
             st.session_state["df"][st.session_state["channel_cols"]].sum().sum()
         )
@@ -941,9 +976,9 @@ def render_results_tab() -> None:
         )
         quick_col4.metric(
             "Media vs baseline",
-            f"{round((media_total / float(result.y_pred.sum())) * 100, 1)}%",
-            f"Baseline {round(result.baseline_pct * 100, 1)}%",
-            help="Share of modelled leads attributed to media versus the baseline part of the model.",
+            f"{round((media_total / actual_total) * 100, 1) if not math.isclose(actual_total, 0.0) else 0.0}%",
+            f"Baseline {round((baseline_total / actual_total) * 100, 1) if not math.isclose(actual_total, 0.0) else 0.0}%",
+            help="Share of actual leads assigned to media versus the baseline part of the displayed decomposition.",
         )
 
 

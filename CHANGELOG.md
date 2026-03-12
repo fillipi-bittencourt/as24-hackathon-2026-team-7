@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 017
+- Task
+  Bounded lead decomposition
+- Change
+  Normalized the displayed media, baseline, and unexplained lead parts so they add up cleanly to total leads and updated the results table to use bounded contribution values
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the business-facing decomposition intuitive and prevent media leads from exceeding total leads in the UI
+
 ### 016
 - Task
   Five model verification
