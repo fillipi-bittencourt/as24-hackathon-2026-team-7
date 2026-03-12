@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 014
+- Task
+  Remaining frequentist models
+- Change
+  Added `Lasso` and `ElasticNet` model classes and exported them from the shared models package
+- Files
+  `mmm/src/models/lasso.py`, `mmm/src/models/elasticnet.py`, `mmm/src/models/__init__.py`, `CHANGELOG.md`
+- Reason
+  Complete the full 5-model set so the app can compare OLS, Ridge, Lasso, ElasticNet, and PyMC
+
 ### 013
 - Task
   Results UX improvements
