@@ -166,12 +166,12 @@ App opens at **http://localhost:8501**
 
 | File | Purpose |
 |------|---------|
-| `mmm/app.py` | Streamlit entry point (placeholder — built by LLM) |
+| `mmm/app.py` | Streamlit entry point |
 | `mmm/requirements.txt` | Full dependency set including optional extras |
 | `mmm/requirements-mvp.txt` | Fast MVP dependency set |
 | `mmm/credentials.json` | API keys (gitignored — copy from credentials.json.example) |
 | `mmm/credentials.json.example` | Credentials schema reference |
 | `mmm/.python-version` | Python 3.10 pin (for pyenv) |
 | `mmm/data/` | Place business CSV here |
-| `mmm/src/` | App source code (created during build) |
-| `mmm/docs/10_BUILD_MMM.md` | Step-by-step app build instructions |
+| `mmm/src/` | App source code |
+| `mmm/docs/10_BUILD_MMM.md` | Step-by-step engineering build history and instructions |

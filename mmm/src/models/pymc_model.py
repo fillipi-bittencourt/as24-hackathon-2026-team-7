@@ -52,6 +52,7 @@ class PyMCModel:
         channel_prior_family = str(
             prior_config.get("channel_prior_family", "HalfNormal")
         )
+        channel_prior_overrides = prior_config.get("channel_prior_overrides", {})
 
         draws = int(sampler_config.get("draws", 300))
         tune = int(sampler_config.get("tune", 200))
@@ -64,19 +65,37 @@ class PyMCModel:
                 sigma=intercept_sigma,
             )
 
-            if channel_prior_family == "Normal":
-                channel_coefs = pm.Normal(
-                    "channel_coefs",
-                    mu=0.0,
-                    sigma=channel_sigma,
-                    shape=n_channels,
+            channel_coef_nodes = []
+            for idx, channel_name in enumerate(channel_names):
+                channel_override = channel_prior_overrides.get(channel_name, {})
+                family = str(channel_override.get("family", channel_prior_family))
+                sigma_value = max(
+                    1e-6,
+                    y_std
+                    * float(
+                        channel_override.get(
+                            "sigma_scale",
+                            prior_config.get("channel_sigma_scale", 1.0),
+                        )
+                    ),
                 )
-            else:
-                channel_coefs = pm.HalfNormal(
-                    "channel_coefs",
-                    sigma=channel_sigma,
-                    shape=n_channels,
-                )
+                variable_name = f"channel_coef_{idx}"
+                if family == "Normal":
+                    channel_coef_nodes.append(
+                        pm.Normal(
+                            variable_name,
+                            mu=0.0,
+                            sigma=sigma_value,
+                        )
+                    )
+                else:
+                    channel_coef_nodes.append(
+                        pm.HalfNormal(
+                            variable_name,
+                            sigma=sigma_value,
+                        )
+                    )
+            channel_coefs = pm.math.stack(channel_coef_nodes)
 
             if n_controls > 0:
                 control_coefs = pm.Normal(
@@ -105,8 +124,12 @@ class PyMCModel:
 
         posterior = self._trace.posterior
         intercept_mean = float(posterior["intercept"].mean().item())
-        channel_means = (
-            posterior["channel_coefs"].mean(dim=("chain", "draw")).values.astype(np.float64)
+        channel_means = np.asarray(
+            [
+                float(posterior[f"channel_coef_{idx}"].mean().item())
+                for idx in range(n_channels)
+            ],
+            dtype=np.float64,
         )
 
         if n_controls > 0:
@@ -151,7 +174,10 @@ class PyMCModel:
         baseline_pct = float(np.sum(baseline)) / y_pred_total
 
         channel_draws = np.asarray(
-            posterior["channel_coefs"].stack(sample=("chain", "draw")).values,
+            [
+                posterior[f"channel_coef_{idx}"].stack(sample=("chain", "draw")).values
+                for idx in range(n_channels)
+            ],
             dtype=np.float64,
         )
         coefficient_lower = {

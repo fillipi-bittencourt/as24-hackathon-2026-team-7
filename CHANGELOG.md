@@ -11,6 +11,96 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 026
+- Task
+  Sidebar step menu navigation
+- Change
+  Replaced the top tab navigation with a sidebar step menu that keeps the existing section behavior, adds step descriptions, and shows step readiness inline in the menu labels
+- Files
+  `mmm/app.py`, `mmm/src/app_state.py`, `CHANGELOG.md`
+- Reason
+  Make the workflow feel more guided and easier to browse without doing a risky full navigation rewrite
+
+### 025
+- Task
+  Final stability and view consistency fixes
+- Change
+  Fixed the remaining Results runtime errors, aligned Results and AI to the selected period and visible channels, and added stale-analysis protection so exports are only available when the AI summary matches the current view
+- Files
+  `mmm/app.py`, `mmm/src/ai/client.py`, `mmm/src/results_helpers.py`, `CHANGELOG.md`
+- Reason
+  Make the app behave consistently end to end and remove mismatches between what the user sees, what the AI explains, and what the exports contain
+
+### 024
+- Task
+  Results chart runtime fix
+- Change
+  Removed the unsupported `width` argument from Streamlit Altair chart calls and moved sizing onto the chart definitions so the Results tab no longer crashes at runtime
+- Files
+  `mmm/app.py`, `mmm/src/results_helpers.py`, `CHANGELOG.md`
+- Reason
+  Restore the full Results and downstream AI flow after a browser-tested runtime failure in the chart rendering path
+
+### 023
+- Task
+  Self explanatory UI copy pass
+- Change
+  Added clearer tab level definitions, stronger control tooltips, and more explanatory captions around comparison and output tables so the app is easier to understand without external documentation
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the app easier to navigate for first time users and reduce ambiguity during live use and demo narration
+
+### 022
+- Task
+  App helper decomposition
+- Change
+  Split the oversized app helper logic into focused modules for state, results helpers, setup assistant behavior, and export builders while keeping the tab rendering flow in `app.py`
+- Files
+  `mmm/app.py`, `mmm/src/app_state.py`, `mmm/src/results_helpers.py`, `mmm/src/setup_assistant.py`, `mmm/src/export_helpers.py`, `mmm/src/ai/__init__.py`, `CHANGELOG.md`
+- Reason
+  Make the codebase easier to maintain and safer to extend without doing a high-risk full UI refactor
+
+### 021
+- Task
+  Complete overview final export
+- Change
+  Added a final overview export that combines column-selection reasoning, data quality and completion notes, transform reasoning, prior choices, current results, and AI suggestions into one CSV and one PDF
+- Files
+  `mmm/app.py`, `mmm/src/ai/client.py`, `CHANGELOG.md`
+- Reason
+  Make the end deliverable self-contained so the team can share one artifact that explains both setup choices and business conclusions
+
+### 020
+- Task
+  AI setup assistant for transforms and priors
+- Change
+  Added an AI driven setup review that inspects the loaded dataset, suggests transform settings, flags consistency and completion issues, recommends channel level PyMC priors with reasoning, and applies the suggested priors directly into the Priors tab
+- Files
+  `mmm/app.py`, `mmm/src/ai/client.py`, `mmm/src/models/pymc_model.py`, `CHANGELOG.md`
+- Reason
+  Cut setup time, surface data issues earlier, and make Bayesian configuration easier to use during a fast hackathon workflow
+
+### 019
+- Task
+  Documentation alignment and AI guardrails
+- Change
+  Updated the project and app docs to reflect the current runnable 6 tab product, added a demo safe path, aligned setup and wireframe references, and tightened the runtime AI prompt to require numeric evidence and clearer trust limits
+- Files
+  `README.md`, `mmm/README.md`, `docs/CHECKLIST.md`, `docs/DEMO_PREP.md`, `docs/15_PROJECT_IMPROVEMENTS_REVIEW.md`, `mmm/docs/02_SETUP.md`, `mmm/docs/03_ARCHITECTURE.md`, `mmm/docs/07_TECHNICAL_SPEC.md`, `mmm/docs/08_UX_FLOW.md`, `mmm/docs/09_AI_ANALYSIS.md`, `mmm/docs/11_WIREFRAME_PROMPT.md`, `mmm/src/ai/client.py`, `CHANGELOG.md`
+- Reason
+  Keep the team and any agents aligned on the actual product state and make the AI output more trustworthy for live hackathon use
+
+### 018
+- Task
+  Project scrutiny and reliability fixes
+- Change
+  Added a formal improvement review document and fixed high-impact reliability issues across validation, period filtering, MAPE computation, CSV loading, and AI credential precedence
+- Files
+  `docs/15_PROJECT_IMPROVEMENTS_REVIEW.md`, `mmm/src/utils.py`, `mmm/app.py`, `mmm/src/ai/client.py`, `CHANGELOG.md`
+- Reason
+  Reduce demo risk and make model outputs and AI setup more reliable under real hackathon conditions
+
 ### 017
 - Task
   Bounded lead decomposition
