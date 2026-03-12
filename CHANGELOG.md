@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 009
+- Task
+  Priors tab and PyMC app wiring
+- Change
+  Added a dedicated Priors tab, connected the saved prior settings into the PyMC fit path, updated the results view for Bayesian intervals, and aligned the UX and build docs
+- Files
+  `mmm/app.py`, `mmm/docs/10_BUILD_MMM.md`, `mmm/docs/08_UX_FLOW.md`, `CHANGELOG.md`
+- Reason
+  Make the Bayesian path usable from the app instead of keeping priors hardcoded or hidden
+
 ### 008
 - Task
   PyMC model implementation

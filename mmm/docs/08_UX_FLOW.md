@@ -6,6 +6,7 @@
 |-----|---------|--------------|
 | Data | Load, preview, validate input CSV | Always |
 | Config | Transform params + regularization hyperparams | Data valid |
+| Priors | Bayesian prior settings and sampler controls | Data valid |
 | Fit | Select models, run fit, view fit status | Transforms applied |
 | Results | Model comparison, three decisions, channel insights, quick insights | ≥1 model fitted |
 | AI | Executive summary for the selected model; stretch Q&A later | ≥1 model fitted |
@@ -18,9 +19,10 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 
 1. **Data** — Upload CSV or select from `data/`; select date_col, target_col, **channels to include** (multiselect — add/remove channels as needed); validate; preview. Channel selection can be edited after load (deselect to remove a channel); changing it re-validates and resets transforms and fits.
 2. **Config** — Per-channel: select **adstock type** (Geometric / None) and **saturation type** (Log / Hill / None); set theta (if geometric), alpha/k (if hill); set regularization alpha and l1_ratio; click "Apply transforms". Recommended defaults: **Geometric + Log**
-3. **Fit** — Select models (MVP: OLS / Ridge; stretch: Lasso / ElasticNet / PyMC); click "Fit selected" or "Fit all"; spinner + R² shown per model
-4. **Results** — Model selector at top; comparison tables; three decision sections; expandable Channel Insights; expandable Quick Insights
-5. **AI** — Provider setup; executive summary for the selected model. Compare-all and Business Q&A are stretch features
+3. **Priors** — Choose the PyMC prior settings and sampler controls before fitting the Bayesian model
+4. **Fit** — Select models (MVP: OLS / Ridge; available Bayesian option: PyMC; stretch: Lasso / ElasticNet); click "Fit selected" or "Fit all"; spinner + R² shown per model
+5. **Results** — Model selector at top; comparison tables; three decision sections; expandable Channel Insights; expandable Quick Insights
+6. **AI** — Provider setup; executive summary for the selected model. Compare-all and Business Q&A are stretch features
 
 ---
 
@@ -44,6 +46,9 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 | `l1_ratio` | `float` | Config tab | Fit (ElasticNet) |
 | `transforms_applied` | `bool` | Config tab | Fit gate |
 | `transform_fingerprint` | `str` | Config tab | Config, Fit, Results |
+| `pymc_prior_config` | `dict[str, Any]` | Priors tab | Fit |
+| `pymc_sampler_config` | `dict[str, Any]` | Priors tab | Fit |
+| `pymc_prior_signature` | `str` | Priors tab | Priors, Fit, Results |
 | `model_results` | `dict[str, ModelResult]` | Fit tab | Results, AI |
 | `model_results_meta` | `dict[str, dict]` | Fit tab | Results |
 | `selected_model` | `str` (model name key) | Results tab | AI tab |
@@ -58,9 +63,11 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 | File picker | Shows CSV files from `mmm/data/`; if empty shows "No files yet — use uploader" |
 | Column selectors | date_col (selectbox), target_col (selectbox), **channel_cols** (multiselect — select which channels to include; **deselect to remove**; ≥1 required), **control_cols** (multiselect, optional). After load, user can change channel/control selection without re-uploading; app re-validates and resets transforms + model results |
 | Transform sliders | Per channel: **Adstock type** (Geometric / None), **Saturation type** (Log / Hill / None); then theta slider (if geometric), alpha/k inputs (if hill); recommended defaults are Geometric + Log |
+| Priors form | Intercept mean mode, intercept sigma scale, channel prior family, channel sigma scale, control sigma scale, noise sigma scale, draws, tune, chains |
 | Reg params | Alpha input for Ridge/Lasso; alpha + l1_ratio for ElasticNet; stored in session_state |
 | Apply transforms | Validates inputs, runs transform_media, sets transforms_applied = True, stores `transform_fingerprint`, and clears stale fits when transform-defining settings change |
-| Model multiselect | MVP: OLS and Ridge. Stretch models can be added later |
+| Save priors | Stores the PyMC prior settings and clears only the stale PyMC result if those settings changed |
+| Model multiselect | OLS, Ridge, and PyMC are available. Lasso and ElasticNet remain stretch |
 | Fit buttons | "Fit selected" + "Fit all"; spinner per model; R² shown after each |
 | Model selector (Results) | Selectbox — switches all sections; stored as selected_model in session_state |
 | Comparison tables | Always show all fitted models; model selector only affects detail sections below |
@@ -73,6 +80,7 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 Hard rule:
 - If channel/control selection or transform settings change, clear `model_results` and `selected_model`
 - If only regularization changes, keep results visible but require re-fit
+- If only PyMC prior settings change, clear only the `PyMC` result and keep the other fitted models
 
 ---
 
@@ -139,6 +147,12 @@ with tab_config:
         st.warning("Load and validate data in the Data tab first.")
     else:
         # ... all Config content
+
+with tab_priors:
+    if not st.session_state.get("valid"):
+        st.warning("Load and validate data in the Data tab first.")
+    else:
+        # ... all Priors content
 
 with tab_fit:
     if not st.session_state.get("transforms_applied"):

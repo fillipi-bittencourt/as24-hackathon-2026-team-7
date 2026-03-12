@@ -281,7 +281,7 @@ Store results per model in `session_state["model_results"]` keyed by model name 
 
 ---
 
-## Step 4 — PyMC (day 2 stretch)
+## Step 4 — PyMC and priors
 
 - [ ] **4.1** Create `mmm/src/models/pymc_model.py`. Implement as a Bayesian linear regression using PyMC with the following priors and sampler settings:
   - **Reproducibility:** Use a fixed `random_seed` (e.g. `random_seed=42`) in `pm.sample(...)` so the same data and config produce the same posterior.
@@ -294,9 +294,9 @@ Store results per model in `session_state["model_results"]` keyed by model name 
   - **CPL HDI:** For each channel, for every posterior draw compute total attributed leads = `(coef_draw[ch] * X[:, ch_idx]).sum()`; then `cpl_draw = raw_spend[ch].sum() / attributed_leads_draw` (if attributed_leads_draw <= 0 use inf). Set `cpl_lower[ch]` = 2.5th percentile of cpl_draws, `cpl_upper[ch]` = 97.5th percentile. Equivalently: get 94% HDI of (sum of contribution[ch] over time) per channel; then cpl_lower = spend / contribution_upper, cpl_upper = spend / contribution_lower.
   - **R² and RMSE:** Use posterior mean of intercept and coefficients to compute y_pred_mean; then r_squared = 1 - SS_res/SS_tot, rmse = sqrt(mean((y - y_pred_mean)**2)). Return ModelResult with coefficient/CPL posterior means and HDI bounds (`cpl_lower`, `cpl_upper`).
 
-- [ ] **4.2** Fit tab: when PyMC is selected (among others), show `st.info("PyMC is optional and slower than OLS/Ridge. Use for deeper analysis after MVP.")`. On "Fit selected" / "Fit all", run PyMC like other models and store in `session_state["model_results"]["PyMC"]`.
+- [ ] **4.2** Fit tab: when PyMC is selected (among others), show `st.info("PyMC is slower than OLS and Ridge. Use the Priors tab to adjust the Bayesian settings before you fit it.")`. On "Fit selected" / "Fit all", run PyMC like other models and store in `session_state["model_results"]["PyMC"]`.
 
-- [ ] **Check (Step 4):** Optional stretch check. Select PyMC in Fit tab and run fit.
+- [ ] **Check (Step 4):** Open Priors, save the settings, then select PyMC in Fit tab and run fit.
   - DoD:
     - PyMC completes in fast mode without crashing the app
     - result stores coefficient and CPL intervals
@@ -447,7 +447,7 @@ Implement as:
 `mmm/app.py` is currently a placeholder (comment only). Replace its entire contents with the full app. **This is where tabs are created — not in Step 1.**
 
 - [V] **7.1** `st.set_page_config(page_title="MMM — Marketing Mix Modeling", layout="wide")`. `st.title("Marketing Mix Modeling")`. `st.caption("Load data → configure transforms → fit models → view results")`.
-- [V] **7.2** `tab_data, tab_config, tab_fit, tab_results, tab_ai = st.tabs(["Data", "Config", "Fit", "Results", "AI"])`. Render each section inside its tab using `with tab_data:` etc.
+- [V] **7.2** `tab_data, tab_config, tab_priors, tab_fit, tab_results, tab_ai = st.tabs(["Data", "Config", "Priors", "Fit", "Results", "AI"])`. Render each section inside its tab using `with tab_data:` etc.
 - [V] **7.3** Tab gating — use `if/else` inside each `with tab_X:` block. **Do NOT use `st.stop()` inside tab blocks** — it stops the entire script and prevents all subsequent tabs from rendering.
 
   Correct pattern for every gated tab:
@@ -457,6 +457,12 @@ Implement as:
           st.warning("Load and validate data in the Data tab first.")
       else:
           # ... all Config content here
+
+  with tab_priors:
+      if not st.session_state.get("valid"):
+          st.warning("Load and validate data in the Data tab first.")
+      else:
+          # ... all Priors content here
 
   with tab_fit:
       if not st.session_state.get("transforms_applied"):
@@ -480,7 +486,7 @@ Implement as:
 
 - [V] **Check (Step 7):** Run `streamlit run app.py` from `mmm/`.
   - DoD:
-    - all five tabs render
+    - all six tabs render
     - gated tabs show guidance messages instead of tracebacks
     - end-to-end MVP walk-through succeeds: load data -> apply transforms -> fit OLS/Ridge -> view Results
   - Mark [V].

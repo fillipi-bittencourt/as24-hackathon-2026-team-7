@@ -13,6 +13,7 @@ import streamlit as st
 
 from src.ai.client import build_payload, get_summary, load_credentials
 from src.models.ols import OLSModel
+from src.models.pymc_model import PyMCModel
 from src.models.ridge import RidgeModel
 from src.transforms import transform_media
 from src.utils import convert_mmm_data, validate_mmm_data
@@ -21,6 +22,7 @@ from src.utils import convert_mmm_data, validate_mmm_data
 MODEL_BUILDERS = {
     "OLS": OLSModel,
     "Ridge": RidgeModel,
+    "PyMC": PyMCModel,
 }
 
 
@@ -50,6 +52,21 @@ def init_state() -> None:
         "selected_model": None,
         "ai_summary": None,
         "last_data_message": None,
+        "pymc_prior_config": {
+            "intercept_mu_mode": "data_mean",
+            "intercept_mu": 0.0,
+            "intercept_sigma_scale": 1.0,
+            "channel_prior_family": "HalfNormal",
+            "channel_sigma_scale": 1.0,
+            "control_sigma_scale": 1.0,
+            "noise_sigma_scale": 1.0,
+        },
+        "pymc_sampler_config": {
+            "draws": 300,
+            "tune": 200,
+            "chains": 1,
+        },
+        "pymc_prior_signature": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -72,6 +89,11 @@ def compute_transform_fingerprint(
         "adstock_params": adstock_params,
         "saturation_params": saturation_params,
     }
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def compute_signature(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -417,19 +439,136 @@ def render_config_tab() -> None:
         st.success("Transforms applied")
 
 
+def render_priors_tab() -> None:
+    if not st.session_state.get("valid"):
+        st.warning("Load and validate data in the Data tab first.")
+        return
+
+    st.caption("Choose the PyMC priors here before fitting the Bayesian model.")
+    current_prior = st.session_state["pymc_prior_config"]
+    current_sampler = st.session_state["pymc_sampler_config"]
+
+    with st.form("pymc_priors_form"):
+        intercept_mode = st.selectbox(
+            "Intercept mean",
+            options=["Use data mean", "Set manually"],
+            index=0 if current_prior.get("intercept_mu_mode", "data_mean") == "data_mean" else 1,
+        )
+        intercept_mu = float(current_prior.get("intercept_mu", 0.0))
+        if intercept_mode == "Set manually":
+            intercept_mu = st.number_input(
+                "Manual intercept mean",
+                value=intercept_mu,
+                step=10.0,
+            )
+
+        channel_prior_family = st.selectbox(
+            "Channel prior family",
+            options=["HalfNormal", "Normal"],
+            index=0 if current_prior.get("channel_prior_family", "HalfNormal") == "HalfNormal" else 1,
+        )
+        pri_col1, pri_col2 = st.columns(2)
+        intercept_sigma_scale = pri_col1.number_input(
+            "Intercept sigma scale",
+            min_value=0.1,
+            value=float(current_prior.get("intercept_sigma_scale", 1.0)),
+            step=0.1,
+        )
+        channel_sigma_scale = pri_col2.number_input(
+            "Channel sigma scale",
+            min_value=0.1,
+            value=float(current_prior.get("channel_sigma_scale", 1.0)),
+            step=0.1,
+        )
+
+        pri_col3, pri_col4 = st.columns(2)
+        control_sigma_scale = pri_col3.number_input(
+            "Control sigma scale",
+            min_value=0.1,
+            value=float(current_prior.get("control_sigma_scale", 1.0)),
+            step=0.1,
+        )
+        noise_sigma_scale = pri_col4.number_input(
+            "Noise sigma scale",
+            min_value=0.1,
+            value=float(current_prior.get("noise_sigma_scale", 1.0)),
+            step=0.1,
+        )
+
+        sampler_col1, sampler_col2, sampler_col3 = st.columns(3)
+        draws = sampler_col1.number_input(
+            "Draws",
+            min_value=100,
+            value=int(current_sampler.get("draws", 300)),
+            step=100,
+        )
+        tune = sampler_col2.number_input(
+            "Tune",
+            min_value=100,
+            value=int(current_sampler.get("tune", 200)),
+            step=100,
+        )
+        chains = sampler_col3.number_input(
+            "Chains",
+            min_value=1,
+            max_value=4,
+            value=int(current_sampler.get("chains", 1)),
+            step=1,
+        )
+
+        saved = st.form_submit_button("Save priors", type="primary")
+
+    if saved:
+        prior_config = {
+            "intercept_mu_mode": "data_mean" if intercept_mode == "Use data mean" else "manual",
+            "intercept_mu": float(intercept_mu),
+            "intercept_sigma_scale": float(intercept_sigma_scale),
+            "channel_prior_family": channel_prior_family,
+            "channel_sigma_scale": float(channel_sigma_scale),
+            "control_sigma_scale": float(control_sigma_scale),
+            "noise_sigma_scale": float(noise_sigma_scale),
+        }
+        sampler_config = {
+            "draws": int(draws),
+            "tune": int(tune),
+            "chains": int(chains),
+        }
+        new_signature = compute_signature(
+            {"prior_config": prior_config, "sampler_config": sampler_config}
+        )
+        old_signature = st.session_state.get("pymc_prior_signature")
+
+        st.session_state["pymc_prior_config"] = prior_config
+        st.session_state["pymc_sampler_config"] = sampler_config
+        st.session_state["pymc_prior_signature"] = new_signature
+
+        if old_signature and old_signature != new_signature and "PyMC" in st.session_state["model_results"]:
+            st.session_state["model_results"].pop("PyMC", None)
+            st.session_state["model_results_meta"].pop("PyMC", None)
+            if st.session_state.get("selected_model") == "PyMC":
+                st.session_state["selected_model"] = next(
+                    iter(st.session_state["model_results"].keys()),
+                    None,
+                )
+            st.session_state["ai_summary"] = None
+            st.warning("PyMC priors changed. The previous PyMC result was cleared.")
+
+        st.success("PyMC priors saved")
+
+
 def render_fit_tab() -> None:
     if not st.session_state.get("transforms_applied"):
         st.warning("Apply transforms in the Config tab first.")
         return
 
-    st.caption("Fit the MVP models first. OLS and Ridge are the required path.")
+    st.caption("Fit the core models first. PyMC is available when you want the Bayesian path.")
     available_models = list(MODEL_BUILDERS.keys())
     selected_models = st.multiselect(
         "Models to fit",
         options=available_models,
         default=["OLS"],
     )
-    st.info("Stretch models such as Lasso, ElasticNet, and PyMC are not part of this MVP build yet.")
+    st.info("Lasso and ElasticNet are still stretch items. PyMC is available from the Priors tab settings.")
 
     fit_selected = st.button("Fit selected", type="primary")
     fit_all = st.button("Fit all")
@@ -449,9 +588,16 @@ def render_fit_tab() -> None:
         builder = MODEL_BUILDERS[model_name]
         with st.spinner(f"Fitting {model_name}"):
             model = builder()
-            kwargs: dict[str, Any] = {"channel_names": st.session_state["channel_cols"]}
+            kwargs: dict[str, Any] = {
+                "channel_names": st.session_state["channel_cols"],
+                "control_names": st.session_state["control_cols"],
+            }
             if model_name == "Ridge":
                 kwargs["reg_alpha"] = st.session_state["reg_alpha"]
+            if model_name == "PyMC":
+                kwargs["prior_config"] = st.session_state["pymc_prior_config"]
+                kwargs["sampler_config"] = st.session_state["pymc_sampler_config"]
+                st.info("PyMC can take longer than OLS and Ridge.")
             result = model.fit(X, y, raw_spend=raw_spend, **kwargs)
             result.model_name = model_name
             st.session_state["model_results"][model_name] = result
@@ -542,15 +688,19 @@ def render_results_tab() -> None:
     why_rows: list[dict[str, Any]] = []
     for channel in result.channel_names:
         contribution_total = float(result.contribution[channel].sum())
-        why_rows.append(
-            {
-                "Channel": channel,
-                "Coefficient": round(float(result.coefficients[channel]), 4),
-                "CPL": format_cpl(result.cpl[channel]),
-                "Contribution": round(contribution_total, 2),
-                "Share": round(float(result.contribution_pct[channel]) * 100, 2),
-            }
-        )
+        row = {
+            "Channel": channel,
+            "Coefficient": round(float(result.coefficients[channel]), 4),
+            "CPL": format_cpl(result.cpl[channel]),
+            "Contribution": round(contribution_total, 2),
+            "Share": round(float(result.contribution_pct[channel]) * 100, 2),
+        }
+        if result.coefficient_lower is not None:
+            row["Coefficient lower"] = round(float(result.coefficient_lower[channel]), 4)
+            row["Coefficient upper"] = round(float(result.coefficient_upper[channel]), 4)
+            row["CPL lower"] = format_cpl(result.cpl_lower[channel])
+            row["CPL upper"] = format_cpl(result.cpl_upper[channel])
+        why_rows.append(row)
     why_df = pd.DataFrame(why_rows)
     st.dataframe(why_df, use_container_width=True)
 
@@ -694,8 +844,8 @@ def main() -> None:
     st.caption("Load data -> configure transforms -> fit models -> view results")
     init_state()
 
-    tab_data, tab_config, tab_fit, tab_results, tab_ai = st.tabs(
-        ["Data", "Config", "Fit", "Results", "AI"]
+    tab_data, tab_config, tab_priors, tab_fit, tab_results, tab_ai = st.tabs(
+        ["Data", "Config", "Priors", "Fit", "Results", "AI"]
     )
 
     with tab_data:
@@ -703,6 +853,9 @@ def main() -> None:
 
     with tab_config:
         render_config_tab()
+
+    with tab_priors:
+        render_priors_tab()
 
     with tab_fit:
         render_fit_tab()
