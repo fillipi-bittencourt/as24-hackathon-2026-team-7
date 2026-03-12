@@ -31,8 +31,12 @@ from src.models.ols import OLSModel
 from src.models.pymc_model import PyMCModel
 from src.models.ridge import RidgeModel
 from src.results_helpers import (
+    build_actual_vs_predicted_chart,
     build_labeled_bar_chart,
     build_period_mask,
+    build_spend_vs_contribution_chart,
+    build_stacked_period_share_chart,
+    build_stacked_time_decomposition_chart,
     compute_display_attribution,
     compute_mape_non_zero,
     compute_view_channel_metrics,
@@ -44,12 +48,13 @@ from src.results_helpers import (
     pick_worst_channel,
 )
 from src.setup_assistant import (
+    apply_ai_column_recommendations,
     apply_ai_prior_recommendations,
     apply_ai_transform_recommendations,
     build_setup_assistant_payload,
     resolve_ai_credentials,
 )
-from src.transforms import transform_media
+from src.transforms import hill_saturation, log_saturation, transform_media
 from src.utils import convert_mmm_data, normalize_column_names, validate_mmm_data
 
 
@@ -65,10 +70,13 @@ STEP_DESCRIPTIONS = {
     "Data": "Load the dataset, confirm the columns, and validate the input before any modeling.",
     "Config": "Choose media transforms and regularization settings for the modeling step.",
     "Priors": "Review or edit Bayesian prior assumptions before using PyMC.",
+    "Info": "Learn what each MMM model and transform does, when to use it, and how to read the outputs.",
     "Fit": "Run one or more models on the transformed dataset.",
     "Results": "Interpret model fit, attribution, efficiency, and exports.",
     "AI": "Generate written analysis and export the complete project overview.",
 }
+
+HOLDOUT_FRACTION = 0.2
 
 
 def render_definitions_expander(
@@ -80,8 +88,339 @@ def render_definitions_expander(
             st.markdown(f"**{label}**  \n{description}")
 
 
+def render_reference_values_expander(
+    title: str,
+    reference_rows: list[tuple[str, str, str]],
+) -> None:
+    with st.expander(title, expanded=False):
+        reference_df = pd.DataFrame(
+            reference_rows,
+            columns=["Item", "Reference", "How to use it"],
+        )
+        st.dataframe(
+            reference_df,
+            column_config=build_table_column_config(reference_df.columns),
+            width="stretch",
+        )
+
+
+def build_table_column_config(columns: list[str] | pd.Index) -> dict[str, Any]:
+    help_text = {
+        "Date": "The date or period represented by the row.",
+        "date": "The date or period represented by the row.",
+        "Item": "The field or concept being described.",
+        "Reference": "A benchmark range or default value used for interpretation.",
+        "How to use it": "Short guidance on how to apply the reference value.",
+        "Selected item": "The dataset field or selection decision being explained.",
+        "Value": "The current value shown for that row.",
+        "Reasoning": "Why the app or AI selected or recommended that value.",
+        "Channel": "The marketing channel or driver being evaluated.",
+        "Adstock": "The carryover transform used for the channel.",
+        "Theta": "Carryover strength for geometric adstock. Higher means longer carryover.",
+        "Saturation": "The diminishing-returns transform used for the channel.",
+        "Alpha": "Hill saturation steepness parameter.",
+        "K": "Hill half-saturation point where the curve reaches about half its maximum response.",
+        "Family": "The prior distribution family used for the channel coefficient.",
+        "Sigma scale": "How wide the prior uncertainty is before the data updates it.",
+        "Model": "The fitted model being compared.",
+        "R² in-sample": "Share of variation explained by the model on the same data used for fitting.",
+        "RMSE in-sample": "Average prediction error on the same data used for fitting.",
+        "MAE in-sample": "Average absolute prediction error on the same data used for fitting.",
+        "MAPE in-sample (%)": "Average percentage prediction error on non-zero target rows in the fitting sample.",
+        "MAPE in-sample coverage": "How many non-zero target rows were used in the in-sample MAPE calculation.",
+        "R² holdout": "Share of variation explained on the holdout window not used for fitting.",
+        "RMSE holdout": "Average prediction error on the holdout window.",
+        "MAE holdout": "Average absolute prediction error on the holdout window.",
+        "MAPE holdout (%)": "Average percentage prediction error on non-zero target rows in the holdout window.",
+        "MAPE holdout coverage": "How many non-zero holdout rows were used in the holdout MAPE calculation.",
+        "Coefficient": "Estimated channel effect in leads per unit of transformed channel input.",
+        "Coefficient lower": "Lower uncertainty bound for the channel coefficient, when available.",
+        "Coefficient upper": "Upper uncertainty bound for the channel coefficient, when available.",
+        "CPL": "Cost per lead. Lower means more efficient lead generation.",
+        "CPL lower": "Lower uncertainty bound for CPL, when available.",
+        "CPL upper": "Upper uncertainty bound for CPL, when available.",
+        "Contribution": "Total modeled leads attributed to the channel in the selected view.",
+        "Contribution share (%)": "Share of actual leads attributed to the channel in the selected view.",
+        "Share": "Share of actual leads attributed to the channel in the selected view.",
+        "Share_pct": "Share of actual leads attributed to the channel in the selected view.",
+        "Spend total": "Total spend for the channel in the selected period.",
+        "Average weekly spend": "Average spend per period in the selected view.",
+        "Average weekly contribution": "Average modeled leads contributed per period in the selected view.",
+        "Adstock": "The carryover transform used for the channel.",
+        "Carryover": "Approximate number of periods the channel effect lingers after spend.",
+        "Saturation status": "Whether the channel looks under-saturated, near saturation, or over-saturated.",
+        "Saturation note": "Short interpretation of the current saturation status.",
+        "What it does": "Plain-language description of what the model or concept does.",
+        "Best use case": "When this model or concept is most useful.",
+        "Strength": "Main reason to prefer this model or concept.",
+        "Watch out for": "Main limitation or caveat to keep in mind.",
+        "Setting": "The transform or MMM setting being described.",
+        "Use it when": "The situation where this transform choice is appropriate.",
+        "Interpretation": "How to read the setting in MMM terms.",
+        "Output": "The metric, chart, or artifact shown by the app.",
+        "How to use it": "How to interpret or use that output in business terms.",
+    }
+    number_columns = {
+        "Theta",
+        "Alpha",
+        "K",
+        "Sigma scale",
+        "R² in-sample",
+        "RMSE in-sample",
+        "MAE in-sample",
+        "MAPE in-sample (%)",
+        "R² holdout",
+        "RMSE holdout",
+        "MAE holdout",
+        "MAPE holdout (%)",
+        "Coefficient",
+        "Coefficient lower",
+        "Coefficient upper",
+        "Contribution",
+        "Contribution share (%)",
+        "Share",
+        "Share_pct",
+        "Spend total",
+        "Average weekly spend",
+        "Average weekly contribution",
+    }
+    config: dict[str, Any] = {}
+    for column in columns:
+        column_name = str(column)
+        help_value = help_text.get(column_name)
+        if not help_value:
+            continue
+        if column_name in number_columns:
+            config[column_name] = st.column_config.NumberColumn(column_name, help=help_value)
+        elif column_name in {"date", "Date"}:
+            config[column_name] = st.column_config.DateColumn(column_name, help=help_value)
+        else:
+            config[column_name] = st.column_config.TextColumn(column_name, help=help_value)
+    return config
+
+
+def compute_holdout_diagnostics(
+    *,
+    builder: type,
+    X: np.ndarray,
+    y: np.ndarray,
+    raw_spend: dict[str, np.ndarray],
+    model_kwargs: dict[str, Any],
+    date_values: pd.Series,
+) -> dict[str, Any] | None:
+    n_rows = len(y)
+    split_idx = int(round(n_rows * (1.0 - HOLDOUT_FRACTION)))
+    min_train_rows = max(20, X.shape[1] + 5)
+    min_holdout_rows = 10
+
+    if split_idx < min_train_rows or (n_rows - split_idx) < min_holdout_rows:
+        return None
+
+    train_X = np.asarray(X[:split_idx], dtype=np.float64)
+    holdout_X = np.asarray(X[split_idx:], dtype=np.float64)
+    train_y = np.asarray(y[:split_idx], dtype=np.float64)
+    holdout_y = np.asarray(y[split_idx:], dtype=np.float64)
+    train_raw_spend = {
+        channel: np.asarray(values[:split_idx], dtype=np.float64)
+        for channel, values in raw_spend.items()
+    }
+
+    validation_model = builder()
+    validation_model.fit(train_X, train_y, raw_spend=train_raw_spend, **model_kwargs)
+    holdout_pred = np.asarray(validation_model.predict(holdout_X), dtype=np.float64)
+    holdout_mae = float(np.mean(np.abs(holdout_y - holdout_pred)))
+    holdout_rmse = float(np.sqrt(np.mean((holdout_y - holdout_pred) ** 2)))
+    holdout_mape, holdout_coverage = compute_mape_non_zero(holdout_y, holdout_pred)
+    ss_res = float(np.sum((holdout_y - holdout_pred) ** 2))
+    ss_tot = float(np.sum((holdout_y - np.mean(holdout_y)) ** 2)) or 1.0
+    holdout_r_squared = 1.0 - (ss_res / ss_tot)
+
+    holdout_dates = pd.to_datetime(date_values.iloc[split_idx:]).reset_index(drop=True)
+    holdout_df = pd.DataFrame(
+        {
+            "date": holdout_dates,
+            "actual": holdout_y,
+            "predicted": holdout_pred,
+        }
+    )
+
+    return {
+        "train_rows": int(split_idx),
+        "holdout_rows": int(n_rows - split_idx),
+        "holdout_r_squared": float(holdout_r_squared),
+        "holdout_rmse": holdout_rmse,
+        "holdout_mae": holdout_mae,
+        "holdout_mape": holdout_mape,
+        "holdout_coverage": holdout_coverage,
+        "holdout_df": holdout_df,
+    }
+
+
+def apply_transform_configuration(
+    *,
+    df: pd.DataFrame,
+    channel_cols: list[str],
+    control_cols: list[str],
+    adstock_type: dict[str, str],
+    saturation_type: dict[str, str],
+    adstock_params: dict[str, float],
+    saturation_params: dict[str, dict[str, float]],
+    reg_alpha: float,
+    l1_ratio: float,
+) -> tuple[bool, bool]:
+    previous_fingerprint = st.session_state.get("transform_fingerprint")
+    previous_reg = st.session_state.get("regularization_signature")
+    current_reg = json.dumps(
+        {
+            "reg_alpha": reg_alpha,
+            "l1_ratio": l1_ratio,
+        },
+        sort_keys=True,
+    )
+
+    fingerprint = compute_transform_fingerprint(
+        channel_cols,
+        control_cols,
+        adstock_type,
+        saturation_type,
+        adstock_params,
+        saturation_params,
+    )
+
+    X_transformed = transform_media(
+        df,
+        channel_cols,
+        adstock_params,
+        saturation_params,
+        adstock_type=adstock_type,
+        saturation_type=saturation_type,
+        control_cols=control_cols,
+    )
+
+    st.session_state["X_transformed"] = X_transformed
+    st.session_state["y"] = df[st.session_state["target_col"]].to_numpy(dtype=np.float64)
+    st.session_state["adstock_params"] = adstock_params
+    st.session_state["saturation_params"] = saturation_params
+    st.session_state["adstock_type"] = adstock_type
+    st.session_state["saturation_type"] = saturation_type
+    st.session_state["reg_alpha"] = reg_alpha
+    st.session_state["l1_ratio"] = l1_ratio
+    st.session_state["transforms_applied"] = True
+    st.session_state["transform_fingerprint"] = fingerprint
+    st.session_state["regularization_signature"] = current_reg
+
+    fits_cleared = False
+    refit_needed = False
+    if st.session_state["model_results"]:
+        if previous_fingerprint and previous_fingerprint != fingerprint:
+            st.session_state["model_results"] = {}
+            st.session_state["model_results_meta"] = {}
+            st.session_state["selected_model"] = None
+            st.session_state["ai_summary"] = None
+            st.session_state["ai_summary_meta"] = None
+            fits_cleared = True
+        elif previous_fingerprint == fingerprint and previous_reg != current_reg:
+            affected_models = ["Ridge", "Lasso", "ElasticNet"]
+            removed_any = False
+            for model_name in affected_models:
+                if model_name in st.session_state["model_results"]:
+                    st.session_state["model_results"].pop(model_name, None)
+                    st.session_state["model_results_meta"].pop(model_name, None)
+                    removed_any = True
+            if removed_any:
+                if st.session_state.get("selected_model") in affected_models:
+                    st.session_state["selected_model"] = next(
+                        iter(st.session_state["model_results"].keys()),
+                        None,
+                    )
+                st.session_state["ai_summary"] = None
+                st.session_state["ai_summary_meta"] = None
+                fits_cleared = True
+            else:
+                refit_needed = True
+
+    return fits_cleared, refit_needed
+
+
+def compute_saturation_status(
+    saturation_kind: str,
+    avg_spend: float,
+    saturation_params: dict[str, float],
+) -> tuple[str, str]:
+    if saturation_kind == "hill":
+        k_value = max(float(saturation_params.get("k", 0.0)), 0.0)
+        if math.isclose(k_value, 0.0):
+            return "hill no k", "Hill saturation is selected but k is near zero, so the status is not informative."
+        spend_ratio = avg_spend / k_value
+        if spend_ratio < 0.7:
+            return "under-saturated", "Average spend is well below the half-saturation point, so there may still be headroom."
+        if spend_ratio <= 1.3:
+            return "near saturation", "Average spend is around the half-saturation point, so gains may start slowing down."
+        return "over-saturated", "Average spend is above the half-saturation point, so incremental response is likely flattening."
+    if saturation_kind == "log":
+        return "log saturation", "Log saturation is a simple diminishing-returns shape without a single half-saturation threshold."
+    return "no saturation", "No saturation curve is applied to this channel."
+
+
+def build_saturation_curve_chart(
+    df: pd.DataFrame,
+    channel_names: list[str],
+    saturation_type: dict[str, str],
+    saturation_params: dict[str, dict[str, float]],
+) -> alt.Chart | None:
+    curve_rows: list[dict[str, Any]] = []
+    for channel in channel_names:
+        max_spend = float(df[channel].max())
+        curve_max = max(max_spend * 2.0, 1.0)
+        spend_grid = np.linspace(0.0, curve_max, 60, dtype=np.float64)
+        sat_kind = saturation_type.get(channel, "log")
+        if sat_kind == "hill":
+            params = saturation_params.get(channel, {"alpha": 1.0, "k": 1.0})
+            response = hill_saturation(
+                spend_grid,
+                float(params.get("alpha", 1.0)),
+                float(params.get("k", 1.0)),
+            )
+        elif sat_kind == "log":
+            response = log_saturation(spend_grid)
+        else:
+            continue
+
+        for spend_value, response_value in zip(spend_grid, response):
+            curve_rows.append(
+                {
+                    "channel": channel,
+                    "spend": float(spend_value),
+                    "response": float(response_value),
+                    "saturation": sat_kind,
+                }
+            )
+
+    if not curve_rows:
+        return None
+
+    curve_df = pd.DataFrame(curve_rows)
+    return (
+        alt.Chart(curve_df)
+        .mark_line()
+        .encode(
+            x=alt.X("spend:Q", title="Spend"),
+            y=alt.Y("response:Q", title="Transformed response"),
+            color=alt.Color("channel:N", title="Channel"),
+            strokeDash=alt.StrokeDash("saturation:N", title="Curve type"),
+            tooltip=[
+                alt.Tooltip("channel:N", title="Channel"),
+                alt.Tooltip("saturation:N", title="Curve type"),
+                alt.Tooltip("spend:Q", title="Spend", format=",.2f"),
+                alt.Tooltip("response:Q", title="Response", format=",.4f"),
+            ],
+        )
+        .properties(title="Saturation curves", height=320, width="container")
+    )
+
+
 def get_step_status(step_name: str) -> str:
-    if step_name == "Data":
+    if step_name in {"Data", "Info"}:
         return "ready"
     if step_name in {"Config", "Priors"}:
         return "ready" if st.session_state.get("valid") else "needs data"
@@ -100,20 +439,24 @@ def build_step_label(step_number: int, step_name: str) -> str:
 
 
 def render_sidebar_step_menu() -> str:
-    ordered_steps = ["Data", "Config", "Priors", "Fit", "Results", "AI"]
-    label_to_step = {
-        build_step_label(idx + 1, step_name): step_name
-        for idx, step_name in enumerate(ordered_steps)
-    }
+    ordered_steps = ["Data", "Config", "Priors", "Info", "Fit", "Results", "AI"]
     current_step = st.session_state.get("current_step", "Data")
-    selected_label = st.sidebar.radio(
-        "Step menu",
-        options=list(label_to_step.keys()),
-        index=ordered_steps.index(current_step) if current_step in ordered_steps else 0,
-        help="Use this menu to move through the MMM workflow from data load to final analysis.",
+    st.sidebar.caption(
+        "Click a step to open it. Steps with missing prerequisites still open and explain what is needed next."
     )
-    selected_step = label_to_step[selected_label]
-    st.session_state["current_step"] = selected_step
+
+    for idx, step_name in enumerate(ordered_steps):
+        label = build_step_label(idx + 1, step_name)
+        if st.sidebar.button(
+            label,
+            key=f"nav_step_{step_name}",
+            use_container_width=True,
+            type="primary" if step_name == current_step else "secondary",
+        ):
+            current_step = step_name
+            st.session_state["current_step"] = step_name
+
+    selected_step = st.session_state.get("current_step", current_step)
     st.sidebar.caption(STEP_DESCRIPTIONS[selected_step])
     return selected_step
 
@@ -174,6 +517,13 @@ def default_channel_selection(columns: list[str], date_col: str | None, target_c
 
 def render_data_tab() -> None:
     st.caption("Start here. Load a CSV, confirm the date, target, and spend columns, then validate the dataset before moving on.")
+    last_data_message = st.session_state.get("last_data_message")
+    if isinstance(last_data_message, dict):
+        message_level = last_data_message.get("level", "info")
+        message_text = str(last_data_message.get("text", ""))
+        if message_text:
+            getattr(st, message_level, st.info)(message_text)
+        st.session_state["last_data_message"] = None
     render_definitions_expander(
         "Definitions for this tab",
         [
@@ -305,6 +655,16 @@ def render_data_tab() -> None:
                 st.warning(" ".join(warnings))
         else:
             st.session_state["valid"] = False
+            st.session_state["df"] = None
+            st.session_state["transforms_applied"] = False
+            st.session_state["transform_fingerprint"] = None
+            st.session_state["X_transformed"] = None
+            st.session_state["y"] = None
+            st.session_state["model_results"] = {}
+            st.session_state["model_results_meta"] = {}
+            st.session_state["selected_model"] = None
+            st.session_state["ai_summary"] = None
+            st.session_state["ai_summary_meta"] = None
             for error in errors:
                 st.error(error)
 
@@ -325,7 +685,7 @@ def render_data_tab() -> None:
 
         with st.expander("AI setup assistant", expanded=False):
             st.caption(
-                "Ask AI to review the ingested data and suggest transform settings, data consistency checks, data completion actions, and PyMC priors. Suggested priors are applied automatically."
+                "Ask AI to review the ingested data and suggest transform settings, data consistency checks, data completion actions, and PyMC priors. Suggested priors and transform settings are applied automatically."
             )
             provider, api_key, model, ai_error = resolve_ai_credentials()
             if ai_error:
@@ -339,7 +699,7 @@ def render_data_tab() -> None:
                 help="Ask AI to review the dataset and suggest data checks, transforms, and priors.",
             ):
                 if not api_key or not model or not provider:
-                    st.error("Add credentials.json or set an API key in the sidebar to enable AI setup suggestions.")
+                    st.error("Add a valid .env or credentials.json file, or set an API key in the sidebar to enable AI setup suggestions.")
                 else:
                     setup_payload = build_setup_assistant_payload()
                     setup_recommendations = get_setup_recommendations(
@@ -352,12 +712,46 @@ def render_data_tab() -> None:
                         st.error(str(setup_recommendations["error"]))
                     else:
                         st.session_state["ai_setup_recommendations"] = setup_recommendations
+                        selection_ok, selection_messages = apply_ai_column_recommendations(
+                            setup_recommendations.get("selection_recommendations", {})
+                        )
+                        if not selection_ok:
+                            st.error(
+                                "AI setup suggestions were generated, but the suggested column selection could not be applied: "
+                                + " ".join(selection_messages)
+                            )
+                            return
                         apply_ai_prior_recommendations(
                             setup_recommendations.get("prior_recommendations", {})
                         )
-                        st.success(
-                            "AI setup suggestions are ready. PyMC prior suggestions were applied to the Priors tab."
+                        apply_ai_transform_recommendations()
+                        fits_cleared, refit_needed = apply_transform_configuration(
+                            df=st.session_state["df"],
+                            channel_cols=st.session_state["channel_cols"],
+                            control_cols=st.session_state["control_cols"],
+                            adstock_type=st.session_state["adstock_type"],
+                            saturation_type=st.session_state["saturation_type"],
+                            adstock_params=st.session_state["adstock_params"],
+                            saturation_params=st.session_state["saturation_params"],
+                            reg_alpha=float(st.session_state["reg_alpha"]),
+                            l1_ratio=float(st.session_state["l1_ratio"]),
                         )
+                        if fits_cleared:
+                            st.session_state["last_data_message"] = {
+                                "level": "warning",
+                                "text": "AI setup suggestions were applied. Column selection, priors, and transforms were updated automatically, and existing fitted models were cleared because the transformed input changed.",
+                            }
+                        elif refit_needed:
+                            st.session_state["last_data_message"] = {
+                                "level": "info",
+                                "text": "AI setup suggestions were applied. Column selection, priors, and transforms were updated automatically. Re-fit the models in the Fit step to refresh the results with the new regularization values.",
+                            }
+                        else:
+                            st.session_state["last_data_message"] = {
+                                "level": "success",
+                                "text": "AI setup suggestions were applied automatically. The selected columns, priors, and transforms now reflect the AI evaluation of the ingested dataset.",
+                            }
+                        st.rerun()
 
             setup_recommendations = st.session_state.get("ai_setup_recommendations")
             if setup_recommendations:
@@ -442,19 +836,32 @@ def render_config_tab() -> None:
             ("Regularization", "Penalty applied to shrink unstable model coefficients in Ridge, Lasso, and ElasticNet."),
         ],
     )
+    render_reference_values_expander(
+        "Reference values for transforms",
+        [
+            ("Theta", "0.1 to 0.3 short carryover", "Use lower values when channel effects fade quickly."),
+            ("Theta", "0.4 to 0.6 medium carryover", "Use mid-range values for steady channels with some persistence."),
+            ("Theta", "0.7 to 0.9 long carryover", "Use higher values only when the channel effect clearly lingers."),
+            ("Hill alpha", "0.5 to 1.5 softer curve", "Good when response fades gradually as spend increases."),
+            ("Hill alpha", "1.5 to 3.0 steeper curve", "Good when response changes sharply around the turning point."),
+            ("Hill k", "close to typical spend", "Start near median or average spend if you want half-saturation near normal budget levels."),
+            ("Regularization alpha", "0.1 to 2.0 common starting range", "Increase when coefficients look unstable or channels are highly correlated."),
+            ("ElasticNet l1 ratio", "0.2 to 0.8 practical range", "Use lower values for stability and higher values for stronger variable selection."),
+        ],
+    )
     df = st.session_state["df"]
     channel_cols = st.session_state["channel_cols"]
     control_cols = st.session_state["control_cols"]
 
     ai_setup_recommendations = st.session_state.get("ai_setup_recommendations")
     if ai_setup_recommendations:
-        st.info("AI setup suggestions are available. You can apply the suggested transform settings before running the manual transform step.")
+        st.info("AI setup suggestions are available. The latest AI run already loaded the suggested transform settings here, and you can re-apply them if you want to overwrite manual edits.")
         if st.button(
             "Apply AI transform suggestions",
             help="Load the AI-suggested transform and regularization values into the controls below.",
         ):
             apply_ai_transform_recommendations()
-            st.success("AI transform suggestions were loaded into Config. Review them and click Apply transforms.")
+            st.success("AI transform suggestions were loaded into Config. Review them and click Apply transforms if you want to recompute the transformed dataset with those values.")
             st.rerun()
 
     adstock_type: dict[str, str] = {}
@@ -548,56 +955,22 @@ def render_config_tab() -> None:
         type="primary",
         help="Create the transformed media matrix used by the model fit step.",
     ):
-        previous_fingerprint = st.session_state.get("transform_fingerprint")
-        previous_reg = st.session_state.get("regularization_signature")
-        current_reg = json.dumps(
-            {
-                "reg_alpha": st.session_state["reg_alpha"],
-                "l1_ratio": st.session_state["l1_ratio"],
-            },
-            sort_keys=True,
-        )
-
-        fingerprint = compute_transform_fingerprint(
-            channel_cols,
-            control_cols,
-            adstock_type,
-            saturation_type,
-            adstock_params,
-            saturation_params,
-        )
-
-        X_transformed = transform_media(
-            df,
-            channel_cols,
-            adstock_params,
-            saturation_params,
+        fits_cleared, refit_needed = apply_transform_configuration(
+            df=df,
+            channel_cols=channel_cols,
+            control_cols=control_cols,
             adstock_type=adstock_type,
             saturation_type=saturation_type,
-            control_cols=control_cols,
+            adstock_params=adstock_params,
+            saturation_params=saturation_params,
+            reg_alpha=float(st.session_state["reg_alpha"]),
+            l1_ratio=float(st.session_state["l1_ratio"]),
         )
-
-        st.session_state["X_transformed"] = X_transformed
-        st.session_state["y"] = df[st.session_state["target_col"]].to_numpy(dtype=np.float64)
-        st.session_state["adstock_params"] = adstock_params
-        st.session_state["saturation_params"] = saturation_params
-        st.session_state["adstock_type"] = adstock_type
-        st.session_state["saturation_type"] = saturation_type
-        st.session_state["transforms_applied"] = True
-        st.session_state["transform_fingerprint"] = fingerprint
-        st.session_state["regularization_signature"] = current_reg
-
-        if st.session_state["model_results"]:
-            if previous_fingerprint and previous_fingerprint != fingerprint:
-                st.session_state["model_results"] = {}
-                st.session_state["model_results_meta"] = {}
-                st.session_state["selected_model"] = None
-                st.session_state["ai_summary"] = None
-                st.warning("Transforms changed — previously fitted models have been cleared. Re-fit your models.")
-            elif previous_fingerprint == fingerprint and previous_reg != current_reg:
-                st.info("Only regularization changed. Re-fit in the Fit tab to update models with new alpha.")
-
         st.success("Transforms applied")
+        if fits_cleared:
+            st.warning("Transforms changed — previously fitted models have been cleared. Re-fit your models.")
+        elif refit_needed:
+            st.info("Only regularization changed. Re-fit in the Fit tab to update models with new alpha.")
 
 
 def render_priors_tab() -> None:
@@ -614,6 +987,19 @@ def render_priors_tab() -> None:
             ("Sigma scale", "How wide or restrictive a prior should be. Higher values allow more uncertainty."),
             ("Draws, tune, chains", "Sampling settings for PyMC. More of them can improve stability but take longer."),
             ("Channel prior overrides", "Optional per-channel priors that replace the shared channel prior defaults."),
+        ],
+    )
+    render_reference_values_expander(
+        "Reference values for priors",
+        [
+            ("Channel prior family", "HalfNormal by default", "Use this when media should not have a negative effect."),
+            ("Channel prior family", "Normal when unsure", "Use this when you want to allow positive or negative media effects."),
+            ("Intercept sigma scale", "0.5 to 1.5 typical", "Lower values make the baseline prior tighter and higher values make it looser."),
+            ("Channel sigma scale", "0.3 to 1.5 common range", "Lower values shrink channel effects more strongly before the data updates them."),
+            ("Control sigma scale", "0.5 to 2.0 common range", "Controls often need more flexibility because they can move in both directions."),
+            ("Noise sigma scale", "0.5 to 1.5 typical", "Raise this when the target is noisy and lower it when the signal is clean."),
+            ("Draws and tune", "300 to 1000 draws, 200 to 500 tune", "Use the lower end for speed and the higher end when you want more stable posterior summaries."),
+            ("Chains", "1 for speed, 2 to 4 for robustness", "More chains improve reliability but increase runtime."),
         ],
     )
     current_prior = st.session_state["pymc_prior_config"]
@@ -771,6 +1157,130 @@ def render_priors_tab() -> None:
         st.success("PyMC priors saved")
 
 
+def render_info_tab() -> None:
+    st.caption(
+        "Use this step as a guide to what the MMM workflow is doing, how the models differ, and how to interpret the outputs before making decisions."
+    )
+    render_definitions_expander(
+        "Definitions for this step",
+        [
+            ("Adstock", "Carryover from previous periods. It reflects how a channel can keep influencing leads after the initial spend."),
+            ("Saturation", "Diminishing returns as spend rises. It helps explain why doubling spend does not double response."),
+            ("Regularization", "A penalty that shrinks unstable coefficients when channels are correlated."),
+            ("CPL", "Cost per lead. Lower means the channel is generating leads more efficiently."),
+            ("Contribution", "The portion of modeled leads assigned to a channel in the selected view."),
+            ("Baseline", "The non-media part of the model, including intercept and control effects."),
+        ],
+    )
+
+    st.subheader("When to use each model")
+    model_rows = [
+        {
+            "Model": "OLS",
+            "What it does": "Fits a simple linear relationship on the transformed inputs.",
+            "Best use case": "Fast baseline and first-pass sanity check.",
+            "Strength": "Easy to explain and quick to run.",
+            "Watch out for": "Less stable when channels are highly correlated.",
+        },
+        {
+            "Model": "Ridge",
+            "What it does": "Adds L2 regularization to stabilize channel effects.",
+            "Best use case": "Default choice when multiple channels move together.",
+            "Strength": "Usually more stable than OLS in real media mixes.",
+            "Watch out for": "Still linear and still in-sample in this app.",
+        },
+        {
+            "Model": "Lasso",
+            "What it does": "Adds L1 regularization that can shrink weak effects heavily.",
+            "Best use case": "Exploring a leaner model when many channels may be weak.",
+            "Strength": "Can simplify noisy channel sets.",
+            "Watch out for": "May zero channels too aggressively when signal is weak.",
+        },
+        {
+            "Model": "ElasticNet",
+            "What it does": "Combines Ridge and Lasso penalties.",
+            "Best use case": "Middle ground between stability and simplification.",
+            "Strength": "Useful when you want both shrinkage and some variable selection.",
+            "Watch out for": "Needs more tuning than OLS or Ridge.",
+        },
+        {
+            "Model": "PyMC",
+            "What it does": "Fits a Bayesian regression on the transformed inputs and returns uncertainty ranges.",
+            "Best use case": "When you want intervals and explicit prior assumptions.",
+            "Strength": "Shows coefficient and CPL uncertainty, not only point estimates.",
+            "Watch out for": "Slower and more sensitive to prior choices.",
+        },
+    ]
+    st.dataframe(pd.DataFrame(model_rows), width="stretch")
+
+    st.subheader("How to choose transforms")
+    transform_rows = [
+        {
+            "Setting": "Geometric adstock",
+            "Use it when": "A channel should keep some carryover after the spend happens.",
+            "Interpretation": "Higher theta means a longer lingering effect.",
+        },
+        {
+            "Setting": "No adstock",
+            "Use it when": "A channel is expected to influence leads mostly in the same period.",
+            "Interpretation": "No carryover is assumed.",
+        },
+        {
+            "Setting": "Log saturation",
+            "Use it when": "You want a simple diminishing-returns shape with few assumptions.",
+            "Interpretation": "Response keeps rising but at a slower and slower rate.",
+        },
+        {
+            "Setting": "Hill saturation",
+            "Use it when": "You want more control over the bend and the half-saturation point.",
+            "Interpretation": "Alpha changes steepness and K controls where the curve starts flattening.",
+        },
+        {
+            "Setting": "No saturation",
+            "Use it when": "You want to test a linear transformed relationship without diminishing returns.",
+            "Interpretation": "Spend response does not flatten in the transform itself.",
+        },
+    ]
+    st.dataframe(pd.DataFrame(transform_rows), width="stretch")
+
+    st.subheader("How to read the outputs")
+    reading_rows = [
+        {
+            "Output": "Model comparison",
+            "How to use it": "Compare fit quality across models, but remember these metrics are in-sample.",
+        },
+        {
+            "Output": "Actual vs predicted",
+            "How to use it": "Check whether the model broadly tracks the observed lead pattern over time.",
+        },
+        {
+            "Output": "Media leads vs baseline vs unexplained",
+            "How to use it": "Use this as a business-facing split of where the selected period's leads appear to come from.",
+        },
+        {
+            "Output": "Spend share vs contribution share",
+            "How to use it": "Look for channels contributing more than their spend share and channels lagging behind their budget weight.",
+        },
+        {
+            "Output": "CPL by channel",
+            "How to use it": "Lower CPL means more efficient lead generation in the current selected view.",
+        },
+        {
+            "Output": "Saturation curves and status",
+            "How to use it": "Use these to judge whether a channel still has likely headroom or is closer to diminishing returns.",
+        },
+        {
+            "Output": "AI analysis",
+            "How to use it": "Use it as a decision-support draft, not as a replacement for model review.",
+        },
+    ]
+    st.dataframe(pd.DataFrame(reading_rows), width="stretch")
+
+    st.info(
+        "Best practice in this app: start with OLS and Ridge, compare the story, then use PyMC when you want uncertainty ranges and explicit prior assumptions."
+    )
+
+
 def render_fit_tab() -> None:
     if not st.session_state.get("transforms_applied"):
         st.warning("Apply transforms in the Config tab first.")
@@ -816,6 +1326,7 @@ def render_fit_tab() -> None:
     }
     X = st.session_state["X_transformed"]
     y = st.session_state["y"]
+    date_values = st.session_state["df"][st.session_state["date_col"]]
 
     for model_name in models_to_run:
         builder = MODEL_BUILDERS[model_name]
@@ -838,10 +1349,19 @@ def render_fit_tab() -> None:
                     kwargs["sampler_config"] = st.session_state["pymc_sampler_config"]
                     st.info("PyMC can take longer than OLS and Ridge.")
                 result = model.fit(X, y, raw_spend=raw_spend, **kwargs)
+                holdout_meta = compute_holdout_diagnostics(
+                    builder=builder,
+                    X=X,
+                    y=y,
+                    raw_spend=raw_spend,
+                    model_kwargs=kwargs,
+                    date_values=date_values,
+                )
                 result.model_name = model_name
                 st.session_state["model_results"][model_name] = result
                 st.session_state["model_results_meta"][model_name] = {
-                    "fitted_at": datetime.now().isoformat(timespec="seconds")
+                    "fitted_at": datetime.now().isoformat(timespec="seconds"),
+                    "holdout": holdout_meta,
                 }
                 st.success(f"{model_name}: R² = {result.r_squared:.2f}, RMSE = {result.rmse:,.0f}")
             except Exception as exc:
@@ -856,14 +1376,25 @@ def build_model_comparison_df() -> pd.DataFrame:
     y = st.session_state.get("y")
     for name, result in st.session_state["model_results"].items():
         mape_value, mape_coverage = compute_mape_non_zero(y, result.y_pred)
+        holdout_meta = st.session_state.get("model_results_meta", {}).get(name, {}).get("holdout")
         row: dict[str, Any] = {
             "Model": name,
-            "R²": round(float(result.r_squared), 3),
-            "RMSE": round(float(result.rmse), 2),
-            "MAE": round(float(np.mean(np.abs(y - result.y_pred))), 2),
-            "MAPE non-zero (%)": round(mape_value, 2) if mape_value is not None else None,
-            "MAPE coverage": mape_coverage,
+            "R² in-sample": round(float(result.r_squared), 3),
+            "RMSE in-sample": round(float(result.rmse), 2),
+            "MAE in-sample": round(float(np.mean(np.abs(y - result.y_pred))), 2),
+            "MAPE in-sample (%)": round(mape_value, 2) if mape_value is not None else None,
+            "MAPE in-sample coverage": mape_coverage,
         }
+        if holdout_meta is not None:
+            row["R² holdout"] = round(float(holdout_meta["holdout_r_squared"]), 3)
+            row["RMSE holdout"] = round(float(holdout_meta["holdout_rmse"]), 2)
+            row["MAE holdout"] = round(float(holdout_meta["holdout_mae"]), 2)
+            row["MAPE holdout (%)"] = (
+                round(float(holdout_meta["holdout_mape"]), 2)
+                if holdout_meta["holdout_mape"] is not None
+                else None
+            )
+            row["MAPE holdout coverage"] = holdout_meta["holdout_coverage"]
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -883,6 +1414,19 @@ def render_results_tab() -> None:
             ("Contribution", "Modeled leads attributed to a channel over the selected view."),
             ("Baseline", "Leads explained by non-media effects and the model intercept."),
             ("Unexplained gap", "Remaining leads not covered by the displayed media and baseline split."),
+        ],
+    )
+    render_reference_values_expander(
+        "Reference values for reading results",
+        [
+            ("R²", "Below 0.30 weak signal", "Treat the model as directional only and investigate missing drivers or noisy data."),
+            ("R²", "0.30 to 0.60 usable", "Good enough for early insight and internal discussion, especially in fast MMM prototypes."),
+            ("R²", "Above 0.60 strong for this type of app", "Usually means the model explains a large share of observed movement, but still validate out of sample."),
+            ("MAPE non-zero", "Below 20% often workable", "Lower is better. Use with RMSE and business context, not as a single pass/fail rule."),
+            ("Unexplained gap", "Near 0% is easier to communicate", "Higher unexplained share means more of the actual total is not covered by the displayed split."),
+            ("CPL", "Lower is better", "Compare channels relative to each other, not against one universal number."),
+            ("Contribution share", "Large share plus low CPL is strongest", "A channel is more persuasive when it combines meaningful volume with efficient CPL."),
+            ("Recommendation quality", "Use as directional guidance", "Treat the action section as a heuristic, not a forecast or final media plan."),
         ],
     )
 
@@ -909,10 +1453,11 @@ def render_results_tab() -> None:
     st.session_state["results_period"] = selected_period
     period_mask = build_period_mask(date_series, selected_period)
 
-    actual_total = float(st.session_state["y"][period_mask].sum())
+    actual_values = st.session_state["y"]
+    actual_total = float(actual_values[period_mask].sum())
     display_channel_totals, baseline_total, unexplained_total = compute_display_attribution(
         result,
-        actual_total,
+        actual_values,
         row_mask=period_mask,
     )
     media_total = sum(display_channel_totals.values())
@@ -953,7 +1498,10 @@ def render_results_tab() -> None:
     st.caption("Compare the fitted models first. Use this section to see whether the ranking and fit quality are broadly consistent across methods.")
     comparison_df = build_model_comparison_df()
     st.dataframe(comparison_df, width="stretch")
-    st.caption("Model comparison table. Higher R² and lower RMSE, MAE, and MAPE are generally better.")
+    st.caption("Model comparison table. In-sample columns describe the final fitted model. Holdout columns describe a time-based validation split using the latest 20% of periods.")
+    st.info(
+        "Statistical note: coefficients and fit metrics reflect the raw fitted model. The business-facing media, baseline, and unexplained split below is a bounded display decomposition for interpretation and may differ from the raw model decomposition."
+    )
 
     coefficient_df = pd.DataFrame(
         {
@@ -1020,30 +1568,128 @@ def render_results_tab() -> None:
         help="R² shows how much variation the model explains. RMSE shows the average prediction error in leads.",
     )
     summary_rows = [
-        {"Group": "Total leads", "Value": actual_total, "Label": format_number(actual_total)},
-        {"Group": "Media leads", "Value": visible_media_total, "Label": format_number(visible_media_total)},
-        {"Group": "Baseline leads", "Value": baseline_total, "Label": format_number(baseline_total)},
+        {"Segment": "Media leads", "Value": visible_media_total, "SegmentOrder": 1},
+        {"Segment": "Baseline leads", "Value": baseline_total, "SegmentOrder": 2},
     ]
     if show_baseline:
         summary_rows.append(
             {
-                "Group": "Unexplained gap",
+                "Segment": "Unexplained gap",
                 "Value": abs(unexplained_total),
-                "Label": format_number(abs(unexplained_total)),
+                "SegmentOrder": 3,
             }
         )
     summary_df = pd.DataFrame(summary_rows)
+    summary_df["Period"] = selected_period
+    if not math.isclose(actual_total, 0.0):
+        summary_df["SharePct"] = (summary_df["Value"] / actual_total) * 100
+    else:
+        summary_df["SharePct"] = 0.0
+    summary_df["ShareLabel"] = summary_df["SharePct"].apply(
+        lambda value: f"{value:.0f}%" if value >= 6 else ""
+    )
+    summary_df["TotalLeads"] = actual_total
+    summary_df["TotalLabel"] = f"Total {format_number(actual_total)}"
     st.altair_chart(
-        build_labeled_bar_chart(
+        build_stacked_period_share_chart(
             summary_df,
-            "Group",
-            "Value",
-            "Label",
-            "Lead comparison",
+            "Lead share in the selected period",
         )
     )
+    actual_vs_pred_rows = []
+    selected_dates = pd.to_datetime(date_series[period_mask]).reset_index(drop=True)
+    selected_actual_series = np.asarray(actual_values[period_mask], dtype=np.float64)
+    selected_pred_series = np.asarray(result.y_pred[period_mask], dtype=np.float64)
+    label_stride = max(1, len(selected_dates) // 10) if len(selected_dates) > 0 else 1
+    for idx, (current_date, actual_value, predicted_value) in enumerate(
+        zip(selected_dates, selected_actual_series, selected_pred_series)
+    ):
+        actual_vs_pred_rows.append(
+            {
+                "date": current_date,
+                "series": "Actual leads",
+                "leads": float(actual_value),
+                "label": format_number(float(actual_value)) if idx % label_stride == 0 else "",
+            }
+        )
+        actual_vs_pred_rows.append(
+            {
+                "date": current_date,
+                "series": "Predicted leads",
+                "leads": float(predicted_value),
+                "label": format_number(float(predicted_value)) if idx % label_stride == 0 else "",
+            }
+        )
+    actual_vs_pred_df = pd.DataFrame(actual_vs_pred_rows)
+    if not actual_vs_pred_df.empty:
+        st.altair_chart(
+            build_actual_vs_predicted_chart(
+                actual_vs_pred_df,
+                "Actual vs predicted leads over time",
+            )
+        )
     if fitted_at:
         st.caption(f"Model fitted on: {fitted_at}")
+    holdout_meta = st.session_state["model_results_meta"].get(selected_model, {}).get("holdout")
+    if holdout_meta is not None:
+        st.subheader("Validation diagnostics")
+        st.caption(
+            "This section shows a simple time-based holdout check using the latest 20% of periods as validation data."
+        )
+        holdout_df = holdout_meta["holdout_df"].copy()
+        holdout_rows = []
+        label_stride = max(1, len(holdout_df) // 8) if len(holdout_df) > 0 else 1
+        for idx, row in holdout_df.iterrows():
+            holdout_rows.append(
+                {
+                    "date": row["date"],
+                    "series": "Actual leads",
+                    "leads": float(row["actual"]),
+                    "label": format_number(float(row["actual"])) if idx % label_stride == 0 else "",
+                }
+            )
+            holdout_rows.append(
+                {
+                    "date": row["date"],
+                    "series": "Predicted leads",
+                    "leads": float(row["predicted"]),
+                    "label": format_number(float(row["predicted"])) if idx % label_stride == 0 else "",
+                }
+            )
+        holdout_plot_df = pd.DataFrame(holdout_rows)
+        if not holdout_plot_df.empty:
+            st.altair_chart(
+                build_actual_vs_predicted_chart(
+                    holdout_plot_df,
+                    "Holdout actual vs predicted leads",
+                )
+            )
+        residual_df = holdout_df.copy()
+        residual_df["residual"] = residual_df["actual"] - residual_df["predicted"]
+        residual_df["label"] = residual_df["residual"].apply(
+            lambda value: format_signed_number(float(value)) if abs(float(value)) >= residual_df["residual"].abs().max() * 0.6 else ""
+        )
+        residual_chart = (
+            alt.Chart(residual_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("date:T", title="Date"),
+                y=alt.Y("residual:Q", title="Residual"),
+                color=alt.condition(
+                    alt.datum.residual >= 0,
+                    alt.value("#4C78A8"),
+                    alt.value("#F58518"),
+                ),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date"),
+                    alt.Tooltip("actual:Q", title="Actual", format=",.2f"),
+                    alt.Tooltip("predicted:Q", title="Predicted", format=",.2f"),
+                    alt.Tooltip("residual:Q", title="Residual", format=",.2f"),
+                ],
+            )
+            .properties(title="Holdout residuals", height=260, width="container")
+        )
+        st.altair_chart(residual_chart)
 
     st.subheader("Why is it happening?")
     st.caption("Use this section to explain channel efficiency. Focus on CPL, contribution, and how much each channel accounts for in the selected model.")
@@ -1067,6 +1713,43 @@ def render_results_tab() -> None:
         why_rows.append(row)
     why_df = pd.DataFrame(why_rows)
     st.dataframe(why_df, width="stretch")
+    total_visible_spend = float(sum(visible_spend_totals.values()))
+    benchmarking_rows = []
+    for channel in visible_channels:
+        spend_total = float(visible_spend_totals[channel])
+        contribution_total = float(visible_channel_totals[channel])
+        spend_share = (spend_total / total_visible_spend) * 100 if not math.isclose(total_visible_spend, 0.0) else 0.0
+        contribution_share = (contribution_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
+        benchmarking_rows.append(
+            {
+                "Channel": channel,
+                "Metric": "Spend share",
+                "SharePct": spend_share,
+                "Total": spend_total,
+                "Label": f"{spend_share:.0f}%",
+                "MinShare": min(spend_share, contribution_share),
+                "MaxShare": max(spend_share, contribution_share),
+            }
+        )
+        benchmarking_rows.append(
+            {
+                "Channel": channel,
+                "Metric": "Contribution share",
+                "SharePct": contribution_share,
+                "Total": contribution_total,
+                "Label": f"{contribution_share:.0f}%",
+                "MinShare": min(spend_share, contribution_share),
+                "MaxShare": max(spend_share, contribution_share),
+            }
+        )
+    benchmarking_df = pd.DataFrame(benchmarking_rows)
+    if not benchmarking_df.empty:
+        st.altair_chart(
+            build_spend_vs_contribution_chart(
+                benchmarking_df,
+                "Spend share vs contribution share",
+            )
+        )
 
     cpl_chart = {
         channel: value
@@ -1109,12 +1792,37 @@ def render_results_tab() -> None:
 
     with st.expander("Channel Insights", expanded=False):
         st.caption("Use this section for deeper exploration. You can limit the view to selected channels and compare them against baseline over time.")
-        insight_df = pd.DataFrame(
-            {
-                channel: result.contribution[channel][period_mask]
-                for channel in st.session_state["selected_visual_channels"]
-            }
+        top_n_default = min(5, max(len(visible_channels), 1))
+        top_n_channels = st.slider(
+            "Top channels shown in time decomposition",
+            min_value=1,
+            max_value=max(len(visible_channels), 1),
+            value=top_n_default,
+            help="Show the strongest channels separately and group the rest into `Other`.",
         )
+        decomposition_mode = st.selectbox(
+            "Time decomposition view",
+            options=["Absolute leads", "Share of leads"],
+            help="Switch between absolute lead volume and share of leads for each period.",
+        )
+        ordered_channels = sorted(
+            visible_channels,
+            key=lambda channel: visible_channel_totals.get(channel, 0.0),
+            reverse=True,
+        )
+        highlighted_channels = ordered_channels[:top_n_channels]
+        other_channels = ordered_channels[top_n_channels:]
+
+        insight_series = {
+            channel: result.contribution[channel][period_mask]
+            for channel in highlighted_channels
+        }
+        if other_channels:
+            insight_series["other"] = np.sum(
+                [result.contribution[channel][period_mask] for channel in other_channels],
+                axis=0,
+            )
+        insight_df = pd.DataFrame(insight_series)
         if show_baseline:
             insight_df["baseline"] = result.baseline[period_mask]
             insight_df["unexplained_gap"] = np.clip(
@@ -1128,22 +1836,35 @@ def render_results_tab() -> None:
             var_name="variable",
             value_name="leads",
         )
-        insight_chart = (
-            alt.Chart(insight_long_df)
-            .mark_bar()
-            .encode(
-                x=alt.X("date:T", title="Date"),
-                y=alt.Y("sum(leads):Q", title="Leads"),
-                color=alt.Color("variable:N", title="Variable"),
-                tooltip=[
-                    alt.Tooltip("date:T", title="Date"),
-                    alt.Tooltip("variable:N", title="Variable"),
-                    alt.Tooltip("sum(leads):Q", title="Leads", format=",.2f"),
-                ],
-            )
-            .properties(title="Stacked lead decomposition over time", height=320, width="container")
+        period_totals = (
+            insight_long_df.groupby("date", as_index=False)["leads"].sum().rename(columns={"leads": "total_leads"})
+        )
+        insight_long_df = insight_long_df.merge(period_totals, on="date", how="left")
+        insight_long_df["share_pct"] = np.where(
+            insight_long_df["total_leads"] > 0,
+            (insight_long_df["leads"] / insight_long_df["total_leads"]) * 100,
+            0.0,
+        )
+        insight_long_df["segment_label"] = insight_long_df["share_pct"].apply(
+            lambda value: f"{value:.0f}%" if value >= 12 else ""
+        )
+        insight_long_df["total_label"] = insight_long_df["total_leads"].apply(
+            lambda value: format_number(float(value))
+        )
+        insight_long_df["SegmentOrder"] = insight_long_df["variable"].apply(
+            lambda value: 1 if value not in {"baseline", "unexplained_gap"} else 2 if value == "baseline" else 3
+        )
+        insight_chart = build_stacked_time_decomposition_chart(
+            insight_long_df,
+            "Stacked lead decomposition over time",
+            share_mode=decomposition_mode == "Share of leads",
         )
         st.altair_chart(insight_chart)
+
+        st.markdown("**MMM interpretation**")
+        st.caption(
+            "These diagnostics explain how each channel was transformed before modeling and whether spend looks closer to headroom or saturation."
+        )
         rows = []
         for channel in st.session_state["selected_visual_channels"]:
             theta = st.session_state["adstock_params"].get(channel, 0.0)
@@ -1153,18 +1874,48 @@ def render_results_tab() -> None:
                 carryover = "Indefinite carryover"
             else:
                 carryover = f"{round(-math.log(0.05) / -math.log(theta))} weeks"
+            avg_weekly_spend = float(visible_spend_totals[channel] / max(int(np.sum(period_mask)), 1))
+            avg_weekly_contribution = float(visible_channel_totals[channel] / max(int(np.sum(period_mask)), 1))
+            sat_kind = st.session_state["saturation_type"].get(channel, "log")
+            sat_params = st.session_state["saturation_params"].get(channel, {"alpha": 1.0, "k": 0.0})
+            saturation_status, saturation_note = compute_saturation_status(
+                sat_kind,
+                avg_weekly_spend,
+                sat_params,
+            )
             rows.append(
                 {
                     "Channel": channel,
                     "Spend total": round(float(visible_spend_totals[channel]), 2),
+                    "Average weekly spend": round(avg_weekly_spend, 2),
                     "Contribution": round(float(visible_channel_totals[channel]), 2),
+                    "Average weekly contribution": round(avg_weekly_contribution, 2),
+                    "Contribution share (%)": round(
+                        (float(visible_channel_totals[channel]) / actual_total) * 100,
+                        2,
+                    )
+                    if not math.isclose(actual_total, 0.0)
+                    else 0.0,
                     "CPL": format_cpl(visible_cpl_map[channel]),
                     "Adstock": st.session_state["adstock_type"].get(channel, "geometric"),
                     "Saturation": st.session_state["saturation_type"].get(channel, "log"),
                     "Carryover": carryover,
+                    "Saturation status": saturation_status,
+                    "Saturation note": saturation_note,
                 }
             )
         st.dataframe(pd.DataFrame(rows), width="stretch")
+
+        saturation_chart = build_saturation_curve_chart(
+            st.session_state["df"].loc[period_mask].reset_index(drop=True),
+            st.session_state["selected_visual_channels"],
+            st.session_state["saturation_type"],
+            st.session_state["saturation_params"],
+        )
+        if saturation_chart is not None:
+            st.altair_chart(saturation_chart)
+        else:
+            st.info("No saturation curves to show because the selected channels use `None` saturation.")
 
     overview_export_df = pd.DataFrame(
         [
@@ -1257,6 +2008,25 @@ def render_results_tab() -> None:
             f"Baseline {round((baseline_total / actual_total) * 100, 1) if not math.isclose(actual_total, 0.0) else 0.0}%",
             help="Share of actual leads assigned to media versus the baseline part of the displayed decomposition.",
         )
+        saturated_channels = []
+        for channel in visible_channels:
+            avg_weekly_spend = float(visible_spend_totals[channel] / max(int(np.sum(period_mask)), 1))
+            sat_kind = st.session_state["saturation_type"].get(channel, "log")
+            sat_params = st.session_state["saturation_params"].get(channel, {"alpha": 1.0, "k": 0.0})
+            saturation_status, _ = compute_saturation_status(sat_kind, avg_weekly_spend, sat_params)
+            if saturation_status == "over-saturated":
+                saturated_channels.append(channel)
+        if saturated_channels:
+            st.info(
+                "Channels closest to diminishing-returns pressure: "
+                + ", ".join(saturated_channels)
+            )
+        else:
+            st.info("No selected channel currently looks over-saturated from the configured MMM transform view.")
+        if best_name and worst_name and best_name != worst_name:
+            st.info(
+                f"Current efficiency gap: {best_name} is the strongest channel by CPL while {worst_name} is the weakest in the selected view."
+            )
 
 
 def render_ai_tab() -> None:
@@ -1273,10 +2043,11 @@ def render_ai_tab() -> None:
     date_col = st.session_state["date_col"]
     date_series = st.session_state["df"][date_col]
     period_mask = build_period_mask(date_series, selected_period)
-    actual_total = float(st.session_state["y"][period_mask].sum())
+    actual_values = st.session_state["y"]
+    actual_total = float(actual_values[period_mask].sum())
     display_channel_totals, baseline_total, unexplained_total = compute_display_attribution(
         result,
-        actual_total,
+        actual_values,
         row_mask=period_mask,
     )
     visible_channel_totals = {
@@ -1343,7 +2114,7 @@ def render_ai_tab() -> None:
         help="Generate a written interpretation of the current model results using the selected AI provider.",
     ):
         if not api_key or not model:
-            st.error("Add credentials.json or set an API key in the sidebar to enable AI analysis.")
+            st.error("Add a valid .env or credentials.json file, or set an API key in the sidebar to enable AI analysis.")
         else:
             payload = build_payload(
                 result,
@@ -1520,6 +2291,8 @@ def main() -> None:
         render_config_tab()
     elif selected_step == "Priors":
         render_priors_tab()
+    elif selected_step == "Info":
+        render_info_tab()
     elif selected_step == "Fit":
         render_fit_tab()
     elif selected_step == "Results":

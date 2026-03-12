@@ -56,6 +56,7 @@ def build_setup_assistant_payload() -> dict[str, Any]:
     channel_cols = st.session_state["channel_cols"]
     control_cols = st.session_state["control_cols"]
     target_series = pd.to_numeric(df[target_col], errors="coerce")
+    candidate_columns = [col for col in df.columns if col not in {date_col, target_col}]
 
     return {
         "date_range": f"{df[date_col].min().date()} to {df[date_col].max().date()}",
@@ -74,6 +75,10 @@ def build_setup_assistant_payload() -> dict[str, Any]:
             control: _profile_column(df[control], target_series)
             for control in control_cols
         },
+        "candidate_columns": {
+            column: _profile_column(df[column], target_series)
+            for column in candidate_columns
+        },
     }
 
 
@@ -88,6 +93,65 @@ def _sanitize_positive_float(value: Any, default: float, minimum: float = 0.1) -
     except (TypeError, ValueError):
         return default
     return max(minimum, parsed)
+
+
+def apply_ai_column_recommendations(selection_recommendations: dict[str, Any]) -> tuple[bool, list[str]]:
+    raw_df = st.session_state["loaded_df"]
+    if raw_df is None or not selection_recommendations:
+        return False, []
+
+    available_columns = list(raw_df.columns)
+    date_col = str(selection_recommendations.get("date_column", st.session_state.get("date_col") or "")).strip()
+    target_col = str(selection_recommendations.get("target_column", st.session_state.get("target_col") or "")).strip()
+    suggested_channels = [
+        col for col in selection_recommendations.get("channels", []) if col in available_columns
+    ]
+    suggested_controls = [
+        col for col in selection_recommendations.get("controls", []) if col in available_columns
+    ]
+
+    if date_col not in available_columns:
+        date_col = st.session_state.get("date_col") or ""
+    if target_col not in available_columns:
+        target_col = st.session_state.get("target_col") or ""
+
+    blocked = {date_col, target_col}
+    channel_cols = [col for col in suggested_channels if col not in blocked]
+    control_cols = [col for col in suggested_controls if col not in blocked and col not in channel_cols]
+
+    if not channel_cols:
+        channel_cols = list(st.session_state.get("channel_cols", []))
+
+    converted = pd.DataFrame(raw_df).copy()
+    from src.utils import convert_mmm_data, validate_mmm_data
+
+    converted = convert_mmm_data(converted, date_col, target_col, channel_cols, control_cols)
+    ok, errors, warnings = validate_mmm_data(
+        converted,
+        date_col,
+        target_col,
+        channel_cols,
+        control_cols,
+    )
+    if not ok:
+        return False, errors
+
+    prepared = converted.sort_values(date_col).reset_index(drop=True)
+    st.session_state["df"] = prepared
+    st.session_state["date_col"] = date_col
+    st.session_state["target_col"] = target_col
+    st.session_state["channel_cols"] = channel_cols
+    st.session_state["control_cols"] = control_cols
+    st.session_state["valid"] = True
+    st.session_state["transforms_applied"] = False
+    st.session_state["transform_fingerprint"] = None
+    st.session_state["X_transformed"] = None
+    st.session_state["y"] = None
+    st.session_state["model_results"] = {}
+    st.session_state["model_results_meta"] = {}
+    st.session_state["selected_model"] = None
+    st.session_state["ai_summary"] = None
+    return True, warnings
 
 
 def apply_ai_prior_recommendations(prior_recommendations: dict[str, Any]) -> None:

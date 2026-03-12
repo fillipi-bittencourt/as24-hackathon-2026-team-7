@@ -1,4 +1,4 @@
-# Python 3.10 (see .python-version)
+# Python 3.9+ (see .python-version)
 
 # Streamlit
 streamlit>=1.28.0

@@ -19,19 +19,21 @@ Show that the team rebuilt decision support with a usable MMM app that answers:
 Use this as the default live path unless you have already tested the full advanced flow on the presentation machine.
 
 1. Start with `mmm/data/mmm_demo_sample.csv`
-2. Confirm the file loads cleanly in `Data`
-3. Keep the default transforms in `Config`
-4. Fit `OLS`
-5. Fit `Ridge`
-6. Open `Results`
-7. Use `All data`
-8. Show the four top metrics
-9. Show the channel breakdown table
-10. Open `Channel Insights` and show the stacked time chart
-11. Open `AI`
-12. Select `In-depth`
-13. Keep `Include all fitted models in the analysis context` enabled
-14. Generate analysis
+2. Use the sidebar step menu and confirm the file loads cleanly in `Data`
+3. Optionally open `Info` if the audience needs the MMM explainer
+4. Keep the default transforms in `Config`
+5. Fit `OLS`
+6. Fit `Ridge`
+7. Open `Results`
+8. Use `All data`
+9. Show the four top metrics
+10. Show the holdout validation view
+11. Show the channel breakdown table
+12. Open `Channel Insights` and show the stacked time chart and saturation curves
+13. Open `AI`
+14. Select `In-depth`
+15. Keep `Include all fitted models in the analysis context` enabled
+16. Generate analysis
 
 Avoid fitting `PyMC` live unless you already tested that exact machine and dataset.
 

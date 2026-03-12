@@ -11,14 +11,15 @@ csv data
   -> AI analysis and exports
 ```
 
-The live app is organized into 6 tabs:
+The live app is organized into a sidebar step menu with 7 sections:
 
 1. `Data`
 2. `Config`
 3. `Priors`
-4. `Fit`
-5. `Results`
-6. `AI`
+4. `Info`
+5. `Fit`
+6. `Results`
+7. `AI`
 
 ---
 
@@ -77,8 +78,9 @@ The live app is organized into 6 tabs:
 2. `Config` applies transforms and stores the transformed matrix.
 3. `Priors` stores Bayesian settings for `PyMC`.
 4. `Fit` runs selected models and stores `ModelResult` objects.
-5. `Results` applies the selected model, channel filter, and period filter to visual outputs and exports.
-6. `AI` builds an aggregated payload from current results and generates either a short or in-depth explanation.
+5. `Fit` runs the selected models and stores their outputs plus validation metadata.
+6. `Results` applies the selected model, channel filter, and period filter to visual outputs and exports.
+7. `AI` builds an aggregated payload from current results and generates either a short or in-depth explanation.
 
 ---
 

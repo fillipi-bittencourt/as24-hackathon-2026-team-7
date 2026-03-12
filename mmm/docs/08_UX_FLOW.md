@@ -1,17 +1,18 @@
 # UX Flow
 
-## Screen Structure (Streamlit Tabs)
+## Screen Structure (sidebar step menu)
 
-| Tab | Purpose | Enabled when |
-|-----|---------|--------------|
+| Step | Purpose | Enabled when |
+|------|---------|--------------|
 | Data | Load, preview, validate input CSV | Always |
 | Config | Transform params + regularization hyperparams | Data valid |
 | Priors | Bayesian prior settings and sampler controls | Data valid |
+| Info | MMM explainer for models, transforms, and output interpretation | Always |
 | Fit | Select models, run fit, view fit status | Transforms applied |
-| Results | Model comparison, three decisions, channel insights, quick insights | ≥1 model fitted |
+| Results | Model comparison, validation, three decisions, channel insights, quick insights | ≥1 model fitted |
 | AI | Analysis generation, provider setup, and AI exports | ≥1 model fitted |
 
-Tabs are always visible. Gating is done by showing a message inside the tab block using `if/else` — not by hiding tabs and not by calling `st.stop()`.
+The sidebar step menu is always visible. Navigation uses a vertical list of sidebar buttons. Gating is done by showing a message inside each section using `if/else`.
 
 ---
 
@@ -20,9 +21,10 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 1. **Data** — Upload CSV or select from `data/`; select date_col, target_col, **channels to include** (multiselect — add/remove channels as needed); validate; preview. Channel selection can be edited after load (deselect to remove a channel); changing it re-validates and resets transforms and fits.
 2. **Config** — Per-channel: select **adstock type** (Geometric / None) and **saturation type** (Log / Hill / None); set theta (if geometric), alpha/k (if hill); set regularization alpha and l1_ratio; click "Apply transforms". Recommended defaults: **Geometric + Log**
 3. **Priors** — Choose the PyMC prior settings and sampler controls before fitting the Bayesian model
-4. **Fit** — Select models and fit them one by one or all at once; spinner and status line shown per model
-5. **Results** — Model selector at top; display period selector; variable filter; comparison tables; three decision sections; exports; expandable Channel Insights; expandable Quick Insights
-6. **AI** — Provider setup; analysis depth selector; optional multi-model context; generated analysis; AI exports
+4. **Info** — Review model, transform, and interpretation guidance before fitting if needed
+5. **Fit** — Select models and fit them one by one or all at once; spinner and status line shown per model
+6. **Results** — Model selector at top; display period selector; variable filter; comparison tables; validation diagnostics; three decision sections; exports; expandable Channel Insights; expandable Quick Insights
+7. **AI** — Provider setup; analysis depth selector; optional multi-model context; generated analysis; AI exports
 
 ---
 
@@ -71,6 +73,7 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 | Save priors | Stores the PyMC prior settings and clears only the stale PyMC result if those settings changed |
 | Model multiselect | OLS, Ridge, Lasso, ElasticNet, and PyMC are available |
 | Fit buttons | "Fit selected" + "Fit all"; spinner per model; R² shown after each |
+| Sidebar step menu | Vertical list of sidebar buttons — one button per step, current step highlighted, readiness shown in the label |
 | Model selector (Results) | Selectbox — switches all sections; stored as selected_model in session_state |
 | Display period | Selectbox — `All data`, `Last 4 weeks`, `Last 8 weeks`, `Last 12 weeks`, `Last 26 weeks` |
 | Variable filter | Multiselect — controls which channels appear in tables and charts |
@@ -89,7 +92,7 @@ Hard rule:
 
 ---
 
-## Results Tab Layout (in order, top to bottom)
+## Results Step Layout (in order, top to bottom)
 
 ```text
 [Model selector]
@@ -98,25 +101,32 @@ Hard rule:
 [Show baseline and unexplained portion]
 
 Model comparison
-  dataframe with R², RMSE, MAE, MAPE non-zero, coverage
+  dataframe with in-sample and holdout fit metrics
   coefficient comparison table
   CPL comparison table
 
 What is happening
   metrics for Total leads, Media leads, Baseline leads, Unexplained gap
   metrics for Top channel by CPL and Model fit
+  actual vs predicted trend
   labeled bar chart for top lead split
+
+Validation diagnostics
+  holdout actual vs predicted
+  holdout residuals
 
 Why is it happening
   channel table with coefficient, CPL, contribution, share
+  spend share vs contribution share benchmark
   labeled CPL bar chart
 
 What should leadership do next
   bullet recommendations with a directional budget shift heuristic
 
 Channel Insights expander
-  stacked bar chart over time
+  stacked bar chart over time with top N plus other
   channel details table
+  saturation curves
 
 Export
   results overview CSV
@@ -132,7 +142,7 @@ Quick Insights expander
 
 ---
 
-## AI Tab Layout
+## AI Step Layout
 
 ```text
 [Credentials status banner]
@@ -148,42 +158,18 @@ Quick Insights expander
 
 ---
 
-## Tab Gating (how it works in Streamlit)
+## Step gating
 
-**Do NOT use `st.stop()` inside tab blocks.** It stops the entire script, preventing all subsequent tabs from rendering.
+**Do NOT use `st.stop()` inside the section renderers.** It would stop the entire script and break the rest of the navigation flow.
 
-Use `if/else` inside each `with tab_X:` block:
+Use `if/else` inside each renderer:
 
 ```
-with tab_config:
+def render_config_tab():
     if not st.session_state.get("valid"):
         st.warning("Load and validate data in the Data tab first.")
     else:
         # ... all Config content
-
-with tab_priors:
-    if not st.session_state.get("valid"):
-        st.warning("Load and validate data in the Data tab first.")
-    else:
-        # ... all Priors content
-
-with tab_fit:
-    if not st.session_state.get("transforms_applied"):
-        st.warning("Apply transforms in the Config tab first.")
-    else:
-        # ... all Fit content
-
-with tab_results:
-    if not st.session_state.get("model_results"):
-        st.info("Fit at least one model in the Fit tab to see results.")
-    else:
-        # ... all Results content
-
-with tab_ai:
-    if not st.session_state.get("model_results"):
-        st.info("Fit at least one model first to enable AI analysis.")
-    else:
-        # ... all AI content
 ```
 
-The tabs are always rendered and clickable. Each tab independently shows either a message or its content.
+The sidebar menu remains browsable at all times. Each step independently shows either a message or its content.

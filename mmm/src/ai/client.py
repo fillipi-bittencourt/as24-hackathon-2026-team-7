@@ -26,49 +26,36 @@ def load_credentials(
         return provider, manual_api_key, model
 
     root_path = Path(__file__).resolve().parents[2]
+    selected_provider = (manual_provider or "").strip().lower() or None
     dotenv_values = _load_dotenv(root_path / ".env")
-    if dotenv_values.get("OPENAI_API_KEY"):
-        return (
-            "openai",
-            dotenv_values["OPENAI_API_KEY"],
-            dotenv_values.get("OPENAI_MODEL", "gpt-4o"),
-        )
-    if dotenv_values.get("ANTHROPIC_API_KEY"):
-        return (
-            "anthropic",
-            dotenv_values["ANTHROPIC_API_KEY"],
-            dotenv_values.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
-        )
-
     credentials_path = root_path / "credentials.json"
     credentials_error: str | None = None
+    credentials_payload: dict[str, Any] | None = None
 
     if credentials_path.exists():
         try:
-            payload = json.loads(credentials_path.read_text(encoding="utf-8"))
-            provider = payload.get("preferred_provider")
-            if not provider:
-                if payload.get("openai_api_key"):
-                    provider = "openai"
-                elif payload.get("anthropic_api_key"):
-                    provider = "anthropic"
-
-            if provider == "openai" and payload.get("openai_api_key"):
-                return (
-                    "openai",
-                    payload["openai_api_key"],
-                    payload.get("openai_model", "gpt-4o"),
-                )
-            if provider == "anthropic" and payload.get("anthropic_api_key"):
-                return (
-                    "anthropic",
-                    payload["anthropic_api_key"],
-                    payload.get("anthropic_model", "claude-3-5-sonnet-20241022"),
-                )
+            credentials_payload = json.loads(credentials_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             credentials_error = "credentials.json is not valid JSON."
         except OSError:
             credentials_error = "credentials.json could not be read."
+
+    selected_source = _resolve_provider_from_sources(
+        provider=selected_provider,
+        manual_model=manual_model,
+        dotenv_values=dotenv_values,
+        credentials_payload=credentials_payload,
+    )
+    if selected_source is not None:
+        return selected_source
+
+    default_source = _resolve_default_provider(
+        manual_model=manual_model,
+        dotenv_values=dotenv_values,
+        credentials_payload=credentials_payload,
+    )
+    if default_source is not None:
+        return default_source
 
     if os.getenv("OPENAI_API_KEY"):
         return "openai", os.environ["OPENAI_API_KEY"], os.getenv("OPENAI_MODEL", "gpt-4o")
@@ -81,9 +68,9 @@ def load_credentials(
 
     if credentials_error:
         raise ValueError(
-            f"{credentials_error} Add a valid credentials.json or set an API key in the sidebar."
+            f"{credentials_error} Add a valid .env or credentials.json file, or set an API key in the sidebar."
         )
-    raise ValueError("Add credentials.json or set an API key in the sidebar to enable AI analysis.")
+    raise ValueError("Add a valid .env or credentials.json file, or set an API key in the sidebar to enable AI analysis.")
 
 
 def build_payload(
@@ -104,7 +91,7 @@ def build_payload(
     actual_total = float(y[period_mask].sum()) if y is not None else 0.0
     display_channel_totals, baseline_total, unexplained_total = compute_display_attribution(
         model_result,
-        actual_total,
+        y,
         row_mask=period_mask,
     )
     spend_totals, view_cpl_map = compute_view_channel_metrics(
@@ -191,104 +178,25 @@ def build_prompt(payload: dict[str, Any]) -> str:
     n_channels = len(payload.get("channels", []))
     controls = payload.get("controls", [])
     control_names = ", ".join(item["name"] for item in controls) if controls else "none"
-
-    return "\n".join(
-        [
-            "Instructions",
-            "You are a senior marketing analytics lead preparing decision support for analysts, managers, CMO, and CEO. Be direct, concrete, and numeric. Explain reasoning and caveats clearly. Do not invent numbers. Every recommendation must cite numeric evidence from the payload. If evidence is weak or missing, say so explicitly.",
-            "",
-            "Context",
-            f"This is a Marketing Mix Model fitted on {date_range} marketing spend and leads data. Success metric is cost per lead. The team used {model_name}. {n_weeks} weeks of data. {n_channels} media channels. Control variables included: {control_names}.",
-            "",
-            "Example",
-            'Input: TV CPL 12.50, Digital CPL 18.20, Social CPL 45.00',
-            'Output: "TV has the best cost per lead at 12.50, followed by Digital at 18.20. Social is weakest at 45.00. Recommend shifting Social budget to TV to improve CPL."',
-            "",
-            "Task",
-            json.dumps(payload, ensure_ascii=True, indent=2),
-            "",
-            "Write six sections",
-            "1. Executive summary with 3 bullets and explicit numbers",
-            "2. Channel diagnosis including strongest and weakest channels, spend efficiency, and lead contribution",
-            "3. Model quality and trust limits referencing fit metrics and unexplained portion",
-            "4. Cross-model consistency check when comparison_table exists",
-            "5. Action plan for the next 30 and 60 days with testable steps",
-            "6. Risks and assumptions that could change the recommendation",
-            "",
-            "Guardrails",
-            "- cite at least one number in every recommendation",
-            "- mention unexplained leads or model limits in the trust section",
-            "- do not claim causal certainty",
-            "- if the evidence is mixed across models, say that directly",
-        ]
+    return _render_prompt_template(
+        "analysis_prompt.txt",
+        {
+            "MODEL_NAME": str(model_name),
+            "DATE_RANGE": str(date_range),
+            "N_WEEKS": str(n_weeks),
+            "N_CHANNELS": str(n_channels),
+            "CONTROL_NAMES": control_names,
+            "PAYLOAD_JSON": json.dumps(payload, ensure_ascii=True, indent=2),
+        },
     )
 
 
 def build_setup_prompt(payload: dict[str, Any]) -> str:
-    return "\n".join(
-        [
-            "Instructions",
-            "You are a senior marketing measurement lead preparing setup recommendations for a marketing mix model. Review the aggregated dataset profile and return only valid JSON. Do not wrap the JSON in markdown fences. Do not invent fields beyond the requested schema.",
-            "",
-            "Context",
-            "The team needs guidance on data consistency, data completion, media transformations, and Bayesian priors before fitting the models. Recommendations must be practical for a fast hackathon workflow.",
-            "",
-            "Task",
-            json.dumps(payload, ensure_ascii=True, indent=2),
-            "",
-            "Return JSON with this exact top-level structure",
-            "{",
-            '  "executive_summary": "string",',
-            '  "column_selection_reasoning": {',
-            '    "date_column": {"name": "date", "reasoning": "string"},',
-            '    "target_column": {"name": "target", "reasoning": "string"},',
-            '    "channels": {"<channel_name>": "string"},',
-            '    "controls": {"<control_name>": "string"}',
-            "  },",
-            '  "data_quality_findings": ["string"],',
-            '  "completion_actions": ["string"],',
-            '  "transform_recommendations": {',
-            '    "<channel_name>": {',
-            '      "adstock_type": "geometric or none",',
-            '      "theta": 0.3,',
-            '      "saturation_type": "log or hill or none",',
-            '      "alpha": 1.0,',
-            '      "k": 1000.0,',
-            '      "reasoning": "string"',
-            "    }",
-            "  },",
-            '  "regularization_suggestion": {',
-            '    "reg_alpha": 1.0,',
-            '    "l1_ratio": 0.5,',
-            '    "reasoning": "string"',
-            "  },",
-            '  "prior_recommendations": {',
-            '    "intercept_mu_mode": "data_mean or manual",',
-            '    "intercept_mu": 0.0,',
-            '    "intercept_sigma_scale": 1.0,',
-            '    "channel_prior_family": "HalfNormal or Normal",',
-            '    "channel_sigma_scale": 1.0,',
-            '    "control_sigma_scale": 1.0,',
-            '    "noise_sigma_scale": 1.0,',
-            '    "reasoning_summary": "string",',
-            '    "channel_recommendations": {',
-            '      "<channel_name>": {',
-            '        "family": "HalfNormal or Normal",',
-            '        "sigma_scale": 1.0,',
-            '        "reasoning": "string"',
-            "      }",
-            "    }",
-            "  }",
-            "}",
-            "",
-            "Rules",
-            "- Use only the channel names provided in the payload.",
-            "- Prefer HalfNormal for channels unless the profile suggests a weak or uncertain effect.",
-            "- Keep theta within 0.1 to 0.9.",
-            "- Keep alpha within 0.1 to 5.0.",
-            "- Keep sigma scales positive and practical, usually between 0.2 and 3.0.",
-            "- Mention missing values, duplicated behavior, flat spend, suspicious negatives, or likely data completion needs when relevant.",
-        ]
+    return _render_prompt_template(
+        "setup_prompt.txt",
+        {
+            "PAYLOAD_JSON": json.dumps(payload, ensure_ascii=True, indent=2),
+        },
     )
 
 
@@ -442,3 +350,82 @@ def _load_dotenv(path: Path) -> dict[str, str]:
         cleaned = value.strip().strip('"').strip("'")
         values[key.strip()] = cleaned
     return values
+
+
+def _resolve_provider_from_sources(
+    *,
+    provider: str | None,
+    manual_model: str | None,
+    dotenv_values: dict[str, str],
+    credentials_payload: dict[str, Any] | None,
+) -> tuple[str, str, str] | None:
+    if provider == "openai":
+        if dotenv_values.get("OPENAI_API_KEY"):
+            return "openai", dotenv_values["OPENAI_API_KEY"], manual_model or dotenv_values.get("OPENAI_MODEL", "gpt-4o")
+        if credentials_payload and credentials_payload.get("openai_api_key"):
+            return "openai", credentials_payload["openai_api_key"], manual_model or credentials_payload.get("openai_model", "gpt-4o")
+        if os.getenv("OPENAI_API_KEY"):
+            return "openai", os.environ["OPENAI_API_KEY"], manual_model or os.getenv("OPENAI_MODEL", "gpt-4o")
+    if provider == "anthropic":
+        if dotenv_values.get("ANTHROPIC_API_KEY"):
+            return (
+                "anthropic",
+                dotenv_values["ANTHROPIC_API_KEY"],
+                manual_model or dotenv_values.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
+            )
+        if credentials_payload and credentials_payload.get("anthropic_api_key"):
+            return (
+                "anthropic",
+                credentials_payload["anthropic_api_key"],
+                manual_model or credentials_payload.get("anthropic_model", "claude-3-5-sonnet-20241022"),
+            )
+        if os.getenv("ANTHROPIC_API_KEY"):
+            return (
+                "anthropic",
+                os.environ["ANTHROPIC_API_KEY"],
+                manual_model or os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
+            )
+    return None
+
+
+def _resolve_default_provider(
+    *,
+    manual_model: str | None,
+    dotenv_values: dict[str, str],
+    credentials_payload: dict[str, Any] | None,
+) -> tuple[str, str, str] | None:
+    if credentials_payload:
+        preferred_provider = credentials_payload.get("preferred_provider")
+        preferred_source = _resolve_provider_from_sources(
+            provider=preferred_provider,
+            manual_model=manual_model,
+            dotenv_values={},
+            credentials_payload=credentials_payload,
+        )
+        if preferred_source is not None:
+            return preferred_source
+
+    for provider_name in ["openai", "anthropic"]:
+        source = _resolve_provider_from_sources(
+            provider=provider_name,
+            manual_model=manual_model,
+            dotenv_values=dotenv_values,
+            credentials_payload=credentials_payload,
+        )
+        if source is not None:
+            return source
+    return None
+
+
+def _render_prompt_template(template_name: str, replacements: dict[str, str]) -> str:
+    template = _load_prompt_template(template_name)
+    rendered = template
+    for key, value in replacements.items():
+        rendered = rendered.replace(f"{{{{{key}}}}}", value)
+    return rendered
+
+
+def _load_prompt_template(template_name: str) -> str:
+    prompts_dir = Path(__file__).resolve().parent / "prompts"
+    template_path = prompts_dir / template_name
+    return template_path.read_text(encoding="utf-8")

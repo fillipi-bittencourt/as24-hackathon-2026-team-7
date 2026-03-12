@@ -16,12 +16,12 @@ Use this checklist to verify the current app, not to rebuild it from scratch.
 
 ## Phase 1 — Environment and app startup
 
-- [ ] confirm Python `3.10+`
+- [ ] confirm Python `3.9+`
 - [ ] create `.venv` in `mmm/`
-- [ ] install `mmm/requirements-mvp.txt`
-- [ ] run `streamlit run app.py`
+- [ ] if using the manual lightweight path, install `mmm/requirements-mvp.txt`
+- [ ] run `mmm/run_app.sh`
 - [ ] confirm the app opens without crashing
-- [ ] confirm all 6 tabs are visible: `Data`, `Config`, `Priors`, `Fit`, `Results`, `AI`
+- [ ] confirm the sidebar step menu shows `Data`, `Config`, `Priors`, `Info`, `Fit`, `Results`, `AI`
 
 ---
 
@@ -47,8 +47,9 @@ Use this checklist to verify the current app, not to rebuild it from scratch.
 
 ## Phase 4 — Results verification
 
-- [ ] results tab shows a model selector
+- [ ] Results step shows a model selector
 - [ ] comparison table renders with `R²`, `RMSE`, `MAE`, and `MAPE non-zero`
+- [ ] holdout validation diagnostics render for the fitted models when enough rows are available
 - [ ] top section shows `Total leads`, `Media leads`, `Baseline leads`, and `Unexplained gap`
 - [ ] the displayed decomposition adds cleanly to total leads
 - [ ] channel table shows coefficients, CPL, contribution, and share
@@ -61,7 +62,7 @@ Use this checklist to verify the current app, not to rebuild it from scratch.
 
 ## Phase 5 — AI verification
 
-- [ ] credentials work from either `credentials.json`, env vars, or manual sidebar override
+- [ ] credentials work from either `.env`, `credentials.json`, env vars, or manual sidebar override
 - [ ] AI failures do not break the rest of the app
 - [ ] `Executive short` and `In-depth` both generate usable output
 - [ ] when enabled, multi-model context uses the fitted comparison set
@@ -92,11 +93,13 @@ Use this checklist to verify the current app, not to rebuild it from scratch.
 ## Current recommended live path
 
 1. Use the sample file if there is any uncertainty about business data.
-2. Keep the transform defaults.
-3. Fit `OLS` and `Ridge`.
-4. Show the top metrics and channel breakdown in `Results`.
-5. Generate one `In-depth` AI analysis if latency is acceptable.
-6. Skip `PyMC` live unless it has already been tested on that machine.
+2. Use the sidebar step menu to move from `Data` to `AI`.
+3. Use `Info` only if the audience needs a quick MMM explainer.
+4. Keep the transform defaults.
+5. Fit `OLS` and `Ridge`.
+6. Show the top metrics, validation view, and channel breakdown in `Results`.
+7. Generate one `In-depth` AI analysis if latency is acceptable.
+8. Skip `PyMC` live unless it has already been tested on that machine.
 
 ---
 

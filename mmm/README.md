@@ -12,7 +12,7 @@ Runnable Streamlit app for hackathon delivery. The app is designed to answer thr
 
 The checked-in app is live and usable.
 
-- tabs: `Data`, `Config`, `Priors`, `Fit`, `Results`, `AI`
+- navigation: sidebar step menu for `Data`, `Config`, `Priors`, `Info`, `Fit`, `Results`, `AI`
 - models: `OLS`, `Ridge`, `Lasso`, `ElasticNet`, `PyMC`
 - results support: model comparison, lead decomposition, channel filtering, period filtering, exports
 - ai support: short or in-depth analysis, multi-model context option, CSV and PDF export
@@ -24,27 +24,24 @@ The checked-in app is live and usable.
 
 ```bash
 cd as24-hackathon-2026-team-7/mmm
-python3.10 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install -r requirements-mvp.txt
-source .venv/bin/activate
-streamlit run app.py
+./run_app.sh
 ```
 
-> Python `3.10+` required.
+`run_app.sh` checks whether the local environment already exists, installs dependencies if needed, prints the local URL, and keeps the terminal attached to the running Streamlit server.
 
-If you need the full optional stack, install `requirements.txt` after the fast setup already works.
+`run_app.sh` is the full launcher path and will install the dependencies needed by the shipped app experience. Use `requirements-mvp.txt` only if you intentionally want a lighter manual environment path.
 
 ---
 
 ## Recommended demo path
 
 1. Load `data/mmm_demo_sample.csv`
-2. Keep the default transforms `Geometric + Log`
-3. Fit `OLS` and `Ridge`
-4. Open `Results` and use `All data`
-5. Show the top metrics, channel table, and stacked time chart
-6. Open `AI`, choose `In-depth`, keep multi-model context enabled, and generate analysis
+2. Use `Info` if the audience needs a quick explanation of models and MMM concepts
+3. Keep the default transforms `Geometric + Log`
+4. Fit `OLS` and `Ridge`
+5. Open `Results` and use `All data`
+6. Show the top metrics, validation diagnostics, channel table, and stacked time chart
+7. Open `AI`, choose `In-depth`, keep multi-model context enabled, and generate analysis
 
 If time or latency is tight, skip `PyMC` in the live run and use `OLS` plus `Ridge`.
 
@@ -54,11 +51,19 @@ If time or latency is tight, skip `PyMC` in the live run and use `OLS` plus `Rid
 
 The app supports:
 
-1. `credentials.json`
-2. environment variables
-3. manual sidebar override
+1. manual sidebar override
+2. `.env`
+3. `credentials.json`
+4. environment variables
 
-Manual sidebar entry is the emergency fallback and now takes precedence when provided.
+Manual sidebar entry is the emergency override and takes precedence when provided. `.env` is the easiest local default source for day-to-day use.
+
+Example `.env`:
+
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
+```
 
 Example `credentials.json`:
 
@@ -72,7 +77,7 @@ Example `credentials.json`:
 }
 ```
 
-`credentials.json` is gitignored and keys must never be committed.
+`.env` and `credentials.json` are gitignored and keys must never be committed.
 
 ---
 
@@ -95,6 +100,9 @@ Optional controls are supported and are validated before fitting.
 ```text
 mmm/
 ├── app.py
+├── run_app.sh
+├── .env
+├── .env.example
 ├── requirements.txt
 ├── requirements-mvp.txt
 ├── credentials.json
@@ -116,7 +124,7 @@ mmm/
 |----------|---------|
 | [docs/02_SETUP.md](docs/02_SETUP.md) | setup and troubleshooting |
 | [docs/03_ARCHITECTURE.md](docs/03_ARCHITECTURE.md) | current app architecture |
-| [docs/08_UX_FLOW.md](docs/08_UX_FLOW.md) | current tab flow and UI behavior |
+| [docs/08_UX_FLOW.md](docs/08_UX_FLOW.md) | current sidebar flow and UI behavior |
 | [docs/09_AI_ANALYSIS.md](docs/09_AI_ANALYSIS.md) | AI payload, prompting, and guardrails |
 | [docs/10_BUILD_MMM.md](docs/10_BUILD_MMM.md) | engineering build history and checklist |
 | [docs/11_WIREFRAME_PROMPT.md](docs/11_WIREFRAME_PROMPT.md) | current wireframe prompt |

@@ -53,6 +53,3 @@ class ElasticNetModel:
         if self._model is None:
             raise ValueError("Model has not been fitted")
         return np.asarray(self._model.predict(np.asarray(X, dtype=np.float64)), dtype=np.float64)
-"""ElasticNet model. See docs/06_MODELS.md and 10_BUILD_MMM.md Step 3."""
-
-# To be implemented: ElasticNetModel class with fit()

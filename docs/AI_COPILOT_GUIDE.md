@@ -9,7 +9,7 @@
 ### [use:scaffold] Scaffolding & Structure
 
 **prompt_examples:**
-- "Create a Streamlit app with tabs for What / Why / What next"
+- "Create a Streamlit app with a guided sidebar step menu for What / Why / What next"
 - "Generate a pandas pipeline to aggregate sales by region and month"
 - "Set up a Flask app with data product layout and placeholder charts"
 

@@ -1,5 +1,7 @@
 # Build the MMM app — Step-by-step instructions
 
+> Current-state note: this file is the engineering build history and implementation checklist. The live app now uses a **sidebar step menu** rather than `st.tabs()`, supports `.env` as a local default credential source, and can be launched with `mmm/run_app.sh`. Some details below intentionally reflect the historical implementation sequence used during the build, not the exact live shell or live credential flow. For current product behavior, prefer `mmm/docs/08_UX_FLOW.md`, `mmm/docs/09_AI_ANALYSIS.md`, and `mmm/docs/02_SETUP.md`.
+
 **Single-file build:** If the agent can load only one file, this file is sufficient to execute the build. For full fidelity (exact ModelResult, transform details, AI payload schema), optionally read the spec refs in the table below.
 If an optional spec file is unavailable, continue with the minimal schema and behavior defined in this file. Do not block the build.
 
@@ -93,7 +95,7 @@ Start with phase A.
 
 Build the complete **interactive** Streamlit MMM app. Data will be provided later via CSV in `mmm/data/` or upload. The app must load, validate, transform, fit models, **allow comparing multiple models**, show results for three decisions, and include an AI single-model executive summary with one provider.
 
-**Run command:** `cd mmm && source .venv/bin/activate && streamlit run app.py`
+**Historical run command used during build:** `cd mmm && source .venv/bin/activate && streamlit run app.py`
 
 **Spec refs (optional):** Load only if you need full fidelity (exact schemas, formulas). For a single-file build, this document alone is enough.
 
@@ -367,7 +369,9 @@ If a value can't be computed (e.g. spend data missing), show `"N/A"` in the card
 
 ## Step 6 — AI summary (required for MVP)
 
-`mmm/src/ai/__init__.py` already exists (placeholder). Create `mmm/src/ai/client.py`.
+> Historical note: the live app has evolved beyond the original MVP-only AI shell described in this section. Treat the details below as implementation history; use `mmm/docs/09_AI_ANALYSIS.md` for the current credential order, prompt behavior, and AI step flow.
+
+`mmm/src/ai/__init__.py` already existed during the original build sequence. Create `mmm/src/ai/client.py`.
 
 Full spec: [09_AI_ANALYSIS.md](09_AI_ANALYSIS.md). Summary of what to implement:
 
@@ -401,7 +405,7 @@ Call OpenAI or Claude with the assembled prompt. Return the response text. On an
 
 - [V] **6.5** — AI tab:
 
-Load credentials on tab open (`load_credentials()`); if none found, show `"Add credentials.json or set an API key in the sidebar to enable AI analysis."` with a `st.sidebar.text_input` as override. Provider radio (OpenAI / Anthropic) pre-set from `preferred_provider`. Enable tab only when `session_state.get("model_results")` is non-empty; otherwise show `"Fit at least one model first."` and return.
+Load credentials on tab open (`load_credentials()`); if none found, show `"Add a valid .env or credentials.json file, or set an API key in the sidebar to enable AI analysis."` with a `st.sidebar.text_input` as override. Provider radio (OpenAI / Anthropic) pre-set from `preferred_provider`. Enable tab only when `session_state.get("model_results")` is non-empty; otherwise show `"Fit at least one model first."` and return.
 
 The selected model for Section A is read from `session_state.get("selected_model")`. If this is None (user hasn't visited the Results tab yet), default to `list(session_state["model_results"].keys())[0]`.
 
@@ -444,11 +448,13 @@ Implement as:
 
 ## Step 7 — App shell
 
-`mmm/app.py` is currently a placeholder (comment only). Replace its entire contents with the full app. **This is where tabs are created — not in Step 1.**
+> Historical note: this section documents the original tab-based shell used during implementation. The live app now uses a sidebar step menu. Keep this section for engineering history, not as the current UX source of truth.
+
+During the original build sequence, `mmm/app.py` started as a placeholder. Replace its contents with the full app shell. **This is where the navigation shell is created — not in Step 1.**
 
 - [V] **7.1** `st.set_page_config(page_title="MMM — Marketing Mix Modeling", layout="wide")`. `st.title("Marketing Mix Modeling")`. `st.caption("Load data → configure transforms → fit models → view results")`.
-- [V] **7.2** `tab_data, tab_config, tab_priors, tab_fit, tab_results, tab_ai = st.tabs(["Data", "Config", "Priors", "Fit", "Results", "AI"])`. Render each section inside its tab using `with tab_data:` etc.
-- [V] **7.3** Tab gating — use `if/else` inside each `with tab_X:` block. **Do NOT use `st.stop()` inside tab blocks** — it stops the entire script and prevents all subsequent tabs from rendering.
+- [V] **7.2** Historical shell note: the original implementation used `st.tabs(["Data", "Config", "Priors", "Fit", "Results", "AI"])`. The live app now uses a sidebar step menu, but the same section renderers still map to the same workflow order.
+- [V] **7.3** Historical gating note: the original shell used `if/else` inside each `with tab_X:` block. The live app keeps the same message-based gating pattern without using `st.stop()`.
 
   Correct pattern for every gated tab:
   ```
@@ -484,10 +490,10 @@ Implement as:
   ```
 - [V] **7.4** Imports at the top of app.py for MVP: `from src.utils import validate_mmm_data`, `from src.transforms import transform_media`, `from src.models.ols import OLSModel`, `from src.models.ridge import RidgeModel`, `from src.ai.client import load_credentials, build_payload, build_prompt, get_summary`. Add `LassoModel`, `ElasticNetModel`, and `PyMCModel` imports only when those files are implemented, or load them lazily behind feature checks. Run from `mmm/` so relative imports resolve.
 
-- [V] **Check (Step 7):** Run `streamlit run app.py` from `mmm/`.
+- [V] **Check (Step 7):** Historical shell check: run `streamlit run app.py` from `mmm/`.
   - DoD:
-    - all six tabs render
-    - gated tabs show guidance messages instead of tracebacks
+    - the original shell renders and the current app flow is reachable
+    - gated sections show guidance messages instead of tracebacks
     - end-to-end MVP walk-through succeeds: load data -> apply transforms -> fit OLS/Ridge -> view Results
   - Mark [V].
 

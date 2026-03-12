@@ -150,7 +150,6 @@ class PyMCModel:
         ss_tot = float(np.sum((y_values - np.mean(y_values)) ** 2)) or 1.0
         r_squared = 1 - (ss_res / ss_tot)
         rmse = float(np.sqrt(np.mean((y_values - y_pred) ** 2)))
-
         coefficients = {
             channel_names[idx]: float(channel_means[idx]) for idx in range(n_channels)
         }

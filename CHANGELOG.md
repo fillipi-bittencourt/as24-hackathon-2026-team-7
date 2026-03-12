@@ -11,6 +11,186 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 044
+- Task
+  Full project consistency and stability pass
+- Change
+  Fixed provider-selection logic, cleared stale downstream state on invalid data or regularization-only changes, stabilized decomposition chart colors, raised the minimum row requirement for stable modeling and holdout checks, and aligned the active docs to the current 7-step full-launcher app
+- Files
+  `mmm/src/ai/client.py`, `mmm/app.py`, `mmm/src/utils.py`, `mmm/src/results_helpers.py`, `README.md`, `mmm/README.md`, `docs/CHECKLIST.md`, `docs/DEMO_PREP.md`, `docs/15_PROJECT_IMPROVEMENTS_REVIEW.md`, `mmm/docs/02_SETUP.md`, `mmm/docs/03_ARCHITECTURE.md`, `mmm/docs/08_UX_FLOW.md`, `mmm/docs/10_BUILD_MMM.md`, `mmm/docs/11_WIREFRAME_PROMPT.md`, `CHANGELOG.md`
+- Reason
+  Remove the highest-impact active inconsistencies and make the shipped app and docs behave like one coherent product
+
+### 043
+- Task
+  Statistical rigor upgrades
+- Change
+  Restored raw statistical model outputs, added time-based holdout validation and validation diagnostics, and clarified the distinction between raw fitted metrics and the bounded business-facing decomposition
+- Files
+  `mmm/app.py`, `mmm/src/models/ols.py`, `mmm/src/models/ridge.py`, `mmm/src/models/lasso.py`, `mmm/src/models/elasticnet.py`, `mmm/src/models/pymc_model.py`, `mmm/docs/06_MODELS.md`, `mmm/docs/08_UX_FLOW.md`, `CHANGELOG.md`
+- Reason
+  Move the app closer to production-ready MMM rigor by separating statistical fit from business communication and by adding a basic generalisation check
+
+### 042
+- Task
+  In-app MMM info step
+- Change
+  Added a dedicated Info step that explains the MMM workflow, model types, when each model should be used, how transforms work, and how to read the outputs in business terms
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Give users an always-available explanation layer inside the product instead of forcing them to infer MMM concepts from the controls and outputs alone
+
+### 041
+- Task
+  Business-ready MMM visuals
+- Change
+  Added actual-versus-predicted trend lines, spend-share versus contribution-share benchmarking, a top-N plus other time decomposition view, and stronger quick MMM interpretation so the Results step reads more like a real MMM decision tool
+- Files
+  `mmm/app.py`, `mmm/src/results_helpers.py`, `CHANGELOG.md`
+- Reason
+  Improve the business-facing visual layer and give analysts and leaders better MMM-specific context beyond tables and simple efficiency rankings
+
+### 040
+- Task
+  AI column selection and full setup application
+- Change
+  Extended the AI setup assistant so it can recommend and apply the selected date, target, channels, and controls before applying priors and transforms, making the ingested-data review drive the full MMM setup automatically
+- Files
+  `mmm/app.py`, `mmm/src/setup_assistant.py`, `mmm/src/ai/prompts/setup_prompt.txt`, `CHANGELOG.md`
+- Reason
+  Make the AI dataset evaluation actually shape the complete MMM configuration instead of only explaining the user’s current manual selection
+
+### 039
+- Task
+  AI setup auto-apply
+- Change
+  Updated the AI setup assistant so it now applies the suggested priors and transform configuration immediately after analysis, computes the transformed dataset automatically, and keeps the settings editable in the later steps
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the ingested-data evaluation actually drive the MMM setup instead of only producing suggestions that still require a second manual apply step
+
+### 038
+- Task
+  Chart labels and total tooltips
+- Change
+  Added period total labels and fuller tooltips to the stacked lead charts so the business-facing visuals now show direct labels and complete tooltip context including totals and shares
+- Files
+  `mmm/app.py`, `mmm/src/results_helpers.py`, `CHANGELOG.md`
+- Reason
+  Make the lead decomposition visuals easier to read quickly and ensure the charts always show labels plus full tooltip context
+
+### 037
+- Task
+  Stacked lead share chart
+- Change
+  Replaced the separate lead comparison bars in Results with a stacked period-share chart so the selected period shows the split between media, baseline, and unexplained leads as one whole
+- Files
+  `mmm/app.py`, `mmm/src/results_helpers.py`, `CHANGELOG.md`
+- Reason
+  Make the top-level decomposition easier to read as shares of one selected period instead of separate bar values
+
+### 036
+- Task
+  Non-negative media effects
+- Change
+  Enforced the business rule that spend channels cannot produce negative lead impact by clipping media coefficients to zero or above in the model result layer and recalculating the business-facing predictions and fit metrics from that constrained view
+- Files
+  `mmm/src/models/base.py`, `mmm/src/models/ols.py`, `mmm/src/models/ridge.py`, `mmm/src/models/lasso.py`, `mmm/src/models/elasticnet.py`, `mmm/src/models/pymc_model.py`, `CHANGELOG.md`
+- Reason
+  Keep media-spend outputs aligned with the business assumption that channels should explain some leads or no leads, but not negative leads
+
+### 035
+- Task
+  MMM diagnostics in Results
+- Change
+  Added richer MMM-specific interpretation to the Results step including saturation status, average spend and contribution diagnostics, transform interpretation notes, and visible saturation curves for the selected channels
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the app feel more like a real MMM tool instead of a light regression wrapper and give users the transform diagnostics needed to interpret channel behavior
+
+### 034
+- Task
+  Unexplained attribution fix
+- Change
+  Changed the displayed attribution logic to work period by period against the observed series so model over and under prediction no longer cancel out at the aggregate level and hide the unexplained component
+- Files
+  `mmm/src/results_helpers.py`, `mmm/app.py`, `mmm/src/ai/client.py`, `CHANGELOG.md`
+- Reason
+  Keep an explicit unexplained portion in the business-facing decomposition instead of making the model look artificially perfect when aggregate errors net to zero
+
+### 033
+- Task
+  Reference values in the app
+- Change
+  Added built-in reference value panels for transforms, Bayesian priors, and result interpretation so users have practical benchmark ranges directly inside the workflow
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the app easier to interpret without external documentation and give users sensible benchmark ranges while configuring and reading the model
+
+### 032
+- Task
+  Button based sidebar navigation
+- Change
+  Replaced the sidebar radio step selector with a browsable button based step menu and updated the active UX docs to reflect the new interaction pattern
+- Files
+  `mmm/app.py`, `mmm/docs/08_UX_FLOW.md`, `mmm/docs/11_WIREFRAME_PROMPT.md`, `CHANGELOG.md`
+- Reason
+  Deliver the guided navigation flow without relying on radio controls and keep the docs aligned with the implemented menu
+
+### 031
+- Task
+  External prompt files for AI analysis
+- Change
+  Moved the hardcoded AI analysis and setup assistant prompt text out of `src/ai/client.py` into editable prompt files and updated the client to load and render those templates at runtime
+- Files
+  `mmm/src/ai/client.py`, `mmm/src/ai/prompts/analysis_prompt.txt`, `mmm/src/ai/prompts/setup_prompt.txt`, `CHANGELOG.md`
+- Reason
+  Make prompt iteration easier without editing Python logic each time the analysis wording or setup guidance changes
+
+### 030
+- Task
+  Consistency cleanup
+- Change
+  Aligned the active docs and user-facing messages with the current `.env` credential path, corrected the PyMC model description to match the implementation, repositioned the build checklist as historical engineering guidance, and removed stale placeholder comments from implemented model files
+- Files
+  `mmm/src/ai/client.py`, `mmm/app.py`, `mmm/src/models/lasso.py`, `mmm/src/models/elasticnet.py`, `mmm/docs/06_MODELS.md`, `mmm/docs/10_BUILD_MMM.md`, `mmm/docs/01_INDEX.md`, `docs/AI_COPILOT_GUIDE.md`, `CHANGELOG.md`
+- Reason
+  Reduce contradictions between the live app, the technical docs, and the codebase so maintenance and handoff are more reliable
+
+### 029
+- Task
+  Runtime version alignment
+- Change
+  Updated the active setup docs, launcher, requirements note, and Python pin to consistently reflect `3.9+` support instead of `3.10+`
+- Files
+  `mmm/.python-version`, `mmm/requirements.txt`, `docs/CHECKLIST.md`, `mmm/docs/02_SETUP.md`, `mmm/run_app.sh`, `CHANGELOG.md`
+- Reason
+  Keep the stated supported runtime aligned across the runnable project and documentation
+
+### 028
+- Task
+  Documentation sync for current app flow
+- Change
+  Updated the setup, run, UX, AI, and verification docs to reflect the sidebar step menu, `.env` default credential path, and `run_app.sh` launcher while adding a current-state note to the engineering build history
+- Files
+  `README.md`, `mmm/README.md`, `docs/CHECKLIST.md`, `docs/DEMO_PREP.md`, `mmm/docs/02_SETUP.md`, `mmm/docs/03_ARCHITECTURE.md`, `mmm/docs/07_TECHNICAL_SPEC.md`, `mmm/docs/08_UX_FLOW.md`, `mmm/docs/09_AI_ANALYSIS.md`, `mmm/docs/10_BUILD_MMM.md`, `mmm/docs/11_WIREFRAME_PROMPT.md`, `mmm/.env.example`, `CHANGELOG.md`
+- Reason
+  Keep the documentation aligned with the actual runnable app so setup, demo, and handoff steps stay reliable
+
+### 027
+- Task
+  Local app launcher script
+- Change
+  Added a `run_app.sh` helper that checks for the local virtual environment, installs full dependencies when needed, and starts the Streamlit server while printing the local URL in the terminal
+- Files
+  `mmm/run_app.sh`, `CHANGELOG.md`
+- Reason
+  Make it easier to bootstrap and run the app from one command without repeating the setup steps manually
+
 ### 026
 - Task
   Sidebar step menu navigation

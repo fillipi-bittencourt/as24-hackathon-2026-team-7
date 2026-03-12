@@ -32,8 +32,8 @@ class OLSModel:
             )
 
         self._result = sm.OLS(y_values, X_with_const).fit()
-        y_pred = np.asarray(self._result.predict(X_with_const), dtype=np.float64)
         n_channels = len(channel_names)
+        y_pred = np.asarray(self._result.predict(X_with_const), dtype=np.float64)
         coefficients = {
             ch: float(self._result.params[1 + idx]) for idx, ch in enumerate(channel_names)
         }

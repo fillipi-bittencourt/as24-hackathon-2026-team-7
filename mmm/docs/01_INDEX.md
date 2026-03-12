@@ -19,10 +19,10 @@ Complete design framework for the Marketing Mix Modeling data product.
 | [07_TECHNICAL_SPEC.md](07_TECHNICAL_SPEC.md) | Tech stack, APIs, interfaces |
 | [08_UX_FLOW.md](08_UX_FLOW.md) | User flow, screens, interactions |
 | [09_AI_ANALYSIS.md](09_AI_ANALYSIS.md) | OpenAI/Claude integration for analysis |
-| [10_BUILD_MMM.md](10_BUILD_MMM.md) | **Build instructions** — step-by-step for agents to implement the app |
-| [11_WIREFRAME_PROMPT.md](11_WIREFRAME_PROMPT.md) | **Wireframe prompt** — copy-paste prompt to generate a Streamlit wireframe; covers all tabs and metrics (leads, CPL, etc.) |
+| [10_BUILD_MMM.md](10_BUILD_MMM.md) | **Build history and engineering checklist** — historical implementation guide for the app |
+| [11_WIREFRAME_PROMPT.md](11_WIREFRAME_PROMPT.md) | **Wireframe prompt** — copy-paste prompt to generate a Streamlit wireframe; covers all sidebar steps and metrics (leads, CPL, etc.) |
 
-**Archived (redundant/snapshot/backlog):** 12_PROJECT_REVIEW_PROMPT, 13_REVIEW_RESPONSE, and 14_IMPROVEMENTS are in [docs/archive/](../../docs/archive/). Build source of truth is 10_BUILD_MMM. The improvements from 14 were implemented in 10_BUILD_MMM and 04_DATA_MODEL; any remaining items there are optional backlog.
+**Archived (redundant/snapshot/backlog):** 12_PROJECT_REVIEW_PROMPT, 13_REVIEW_RESPONSE, and 14_IMPROVEMENTS are in [docs/archive/](../../docs/archive/). Current product behavior is described by `02_SETUP`, `07_TECHNICAL_SPEC`, `08_UX_FLOW`, and `09_AI_ANALYSIS`. `10_BUILD_MMM` remains useful as engineering build history and detailed implementation notes.
 
 ---
 

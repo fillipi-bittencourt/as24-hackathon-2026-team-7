@@ -12,7 +12,7 @@ Rim Nasfi · Kelly Mitchell · Hussain Jalaluddin · Fillipi Bittencourt
 
 The product is a runnable **Streamlit MMM app** in `mmm/`.
 
-- current app flow: `Data`, `Config`, `Priors`, `Fit`, `Results`, `AI`
+- current app navigation: sidebar step menu with `Data`, `Config`, `Priors`, `Info`, `Fit`, `Results`, `AI`
 - current model support: `OLS`, `Ridge`, `Lasso`, `ElasticNet`, `PyMC`
 - current export support: results and AI analysis as `CSV` and `PDF`
 - sample dataset included: `mmm/data/mmm_demo_sample.csv`
@@ -67,9 +67,9 @@ as24-hackathon-2026-team-7/
 
 ## Fast Demo Path
 
-1. Create the environment from `mmm/requirements-mvp.txt`
-2. Run `streamlit run app.py` inside `mmm/`
-3. Load `mmm/data/mmm_demo_sample.csv`
+1. Run `./run_app.sh` inside `mmm/`
+2. Load `mmm/data/mmm_demo_sample.csv`
+3. Review the `Info` step if the audience needs a quick MMM explanation
 4. Apply default transforms
 5. Fit `OLS` and `Ridge`
 6. Use `Results` to answer what is happening, why, and what next

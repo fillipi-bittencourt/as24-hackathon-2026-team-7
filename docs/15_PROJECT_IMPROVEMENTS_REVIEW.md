@@ -4,7 +4,7 @@ This review is focused on hackathon readiness, reliability, and clarity for judg
 
 ## what was scrutinized
 
-- app behavior across data load, transforms, fit, results, and ai tabs
+- app behavior across data load, transforms, priors, info, fit, results, and ai steps
 - validation and error handling paths that can fail during a live demo
 - metric consistency and interpretation risks
 - docs and implementation drift that can confuse the team
@@ -45,8 +45,8 @@ This review is focused on hackathon readiness, reliability, and clarity for judg
   - several docs previously described `app.py` as placeholder and the tab flow as not finalized
   - updated top-level and mmm readmes plus checklist to match the current runnable app
 
-- [x] **single source of truth for tab architecture**
-  - align all docs on the current 6-tab flow including `Priors`
+- [x] **single source of truth for app architecture**
+  - align all docs on the current sidebar step flow including `Priors` and `Info`
 
 - [x] **demo safe path definition**
   - add one click path for a reliable 8-10 minute live demo

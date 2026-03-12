@@ -90,42 +90,261 @@ def build_labeled_bar_chart(
     )
 
 
+def build_stacked_period_share_chart(
+    df: pd.DataFrame,
+    title: str,
+) -> alt.Chart:
+    color_scale = alt.Scale(
+        domain=["Media leads", "Baseline leads", "Unexplained gap"],
+        range=["#4C78A8", "#72B7B2", "#F58518"],
+    )
+    base = alt.Chart(df).encode(
+        x=alt.X("Period:N", title=None),
+        y=alt.Y(
+            "Value:Q",
+            stack="normalize",
+            title="Share of leads",
+            axis=alt.Axis(format="%"),
+        ),
+        color=alt.Color("Segment:N", title="Lead source", scale=color_scale),
+        order=alt.Order("SegmentOrder:Q"),
+        tooltip=[
+            alt.Tooltip("Period:N", title="Period"),
+            alt.Tooltip("Segment:N", title="Lead source"),
+            alt.Tooltip("Value:Q", title="Leads", format=",.2f"),
+            alt.Tooltip("SharePct:Q", title="Share (%)", format=".1f"),
+            alt.Tooltip("TotalLeads:Q", title="Total leads", format=",.2f"),
+        ],
+    )
+    bars = base.mark_bar(size=120)
+    labels = base.mark_text(color="white", baseline="middle").encode(
+        text=alt.Text("ShareLabel:N")
+    )
+    total_labels = (
+        alt.Chart(df.drop_duplicates(subset=["Period"]))
+        .mark_text(dy=-12, fontWeight="bold")
+        .encode(
+            x=alt.X("Period:N", title=None),
+            y=alt.value(0),
+            text=alt.Text("TotalLabel:N"),
+        )
+    )
+    return (bars + labels + total_labels).properties(title=title, height=320, width="container")
+
+
+def build_stacked_time_decomposition_chart(
+    df: pd.DataFrame,
+    title: str,
+    share_mode: bool = False,
+) -> alt.Chart:
+    special_colors = {
+        "baseline": "#72B7B2",
+        "unexplained_gap": "#F58518",
+        "other": "#B279A2",
+    }
+    palette = [
+        "#4C78A8",
+        "#54A24B",
+        "#E45756",
+        "#F58518",
+        "#EECA3B",
+        "#B279A2",
+        "#FF9DA6",
+        "#9D755D",
+        "#BAB0AC",
+    ]
+    domain = list(pd.unique(df["variable"]))
+    used_special = {name for name in domain if name in special_colors}
+    non_special = [name for name in domain if name not in special_colors]
+    range_values = []
+    palette_idx = 0
+    for name in domain:
+        if name in special_colors:
+            range_values.append(special_colors[name])
+        else:
+            range_values.append(palette[palette_idx % len(palette)])
+            palette_idx += 1
+    color_scale = alt.Scale(domain=domain, range=range_values)
+    y_encoding = (
+        alt.Y("leads:Q", stack="normalize", title="Share of leads", axis=alt.Axis(format="%"))
+        if share_mode
+        else alt.Y("sum(leads):Q", title="Leads")
+    )
+    base = alt.Chart(df).encode(
+        x=alt.X("date:T", title="Date"),
+        y=y_encoding,
+        color=alt.Color("variable:N", title="Variable", scale=color_scale),
+        order=alt.Order("SegmentOrder:Q"),
+        tooltip=[
+            alt.Tooltip("date:T", title="Date"),
+            alt.Tooltip("variable:N", title="Variable"),
+            alt.Tooltip("leads:Q", title="Leads", format=",.2f"),
+            alt.Tooltip("share_pct:Q", title="Share (%)", format=".1f"),
+            alt.Tooltip("total_leads:Q", title="Total leads", format=",.2f"),
+        ],
+    )
+    bars = base.mark_bar()
+    labels = base.mark_text(color="white", baseline="middle").encode(
+        text=alt.Text("segment_label:N")
+    )
+    total_label_y = alt.value(0) if share_mode else alt.Y("total_leads:Q", title="Leads")
+    total_label_dy = -12 if share_mode else -10
+    total_labels = (
+        alt.Chart(df.drop_duplicates(subset=["date"]))
+        .mark_text(dy=total_label_dy, fontWeight="bold")
+        .encode(
+            x=alt.X("date:T", title="Date"),
+            y=total_label_y,
+            text=alt.Text("total_label:N"),
+        )
+    )
+    return (bars + labels + total_labels).properties(title=title, height=320, width="container")
+
+
+def build_actual_vs_predicted_chart(
+    df: pd.DataFrame,
+    title: str,
+) -> alt.Chart:
+    line = (
+        alt.Chart(df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("date:T", title="Date"),
+            y=alt.Y("leads:Q", title="Leads"),
+            color=alt.Color("series:N", title="Series"),
+            tooltip=[
+                alt.Tooltip("date:T", title="Date"),
+                alt.Tooltip("series:N", title="Series"),
+                alt.Tooltip("leads:Q", title="Leads", format=",.2f"),
+            ],
+        )
+    )
+    labels = (
+        alt.Chart(df)
+        .mark_text(dy=-10)
+        .encode(
+            x=alt.X("date:T", title="Date"),
+            y=alt.Y("leads:Q", title="Leads"),
+            color=alt.Color("series:N", title="Series"),
+            text=alt.Text("label:N"),
+        )
+    )
+    return (line + labels).properties(title=title, height=320, width="container")
+
+
+def build_spend_vs_contribution_chart(
+    df: pd.DataFrame,
+    title: str,
+) -> alt.Chart:
+    rule = (
+        alt.Chart(df)
+        .mark_rule(color="#B0B0B0")
+        .encode(
+            y=alt.Y("Channel:N", title=None),
+            x=alt.X("MinShare:Q", title="Share (%)"),
+            x2="MaxShare:Q",
+        )
+    )
+    points = (
+        alt.Chart(df)
+        .mark_point(filled=True, size=110)
+        .encode(
+            y=alt.Y("Channel:N", title=None, sort="-x"),
+            x=alt.X("SharePct:Q", title="Share (%)"),
+            color=alt.Color("Metric:N", title="Metric"),
+            tooltip=[
+                alt.Tooltip("Channel:N", title="Channel"),
+                alt.Tooltip("Metric:N", title="Metric"),
+                alt.Tooltip("SharePct:Q", title="Share (%)", format=".1f"),
+                alt.Tooltip("Total:Q", title="Total", format=",.2f"),
+            ],
+        )
+    )
+    labels = (
+        alt.Chart(df)
+        .mark_text(dx=8, baseline="middle")
+        .encode(
+            y=alt.Y("Channel:N", title=None, sort="-x"),
+            x=alt.X("SharePct:Q", title="Share (%)"),
+            color=alt.Color("Metric:N", title="Metric"),
+            text=alt.Text("Label:N"),
+        )
+    )
+    return (rule + points + labels).properties(title=title, height=max(220, 42 * len(df["Channel"].unique())), width="container")
+
+
 def compute_display_attribution(
     result: Any,
-    actual_total: float,
+    actual_values: np.ndarray,
     row_mask: np.ndarray | None = None,
 ) -> tuple[dict[str, float], float, float]:
-    if row_mask is None:
-        row_mask = np.ones_like(result.baseline, dtype=bool)
-
-    raw_channel_totals = {
-        channel: max(float(result.contribution[channel][row_mask].sum()), 0.0)
-        for channel in result.channel_names
-    }
-    raw_baseline_total = max(float(result.baseline[row_mask].sum()), 0.0)
-    raw_explained_total = sum(raw_channel_totals.values()) + raw_baseline_total
-
-    if math.isclose(actual_total, 0.0) or math.isclose(raw_explained_total, 0.0):
-        return (
-            {channel: 0.0 for channel in result.channel_names},
-            0.0,
-            max(actual_total, 0.0),
-        )
-
-    scale_factor = min(1.0, actual_total / raw_explained_total)
-    display_channel_totals = {
-        channel: value * scale_factor for channel, value in raw_channel_totals.items()
-    }
-    display_baseline_total = raw_baseline_total * scale_factor
-    display_unexplained_total = max(
-        actual_total - (sum(display_channel_totals.values()) + display_baseline_total),
-        0.0,
+    channel_vectors, baseline_vector, unexplained_vector = compute_display_attribution_vectors(
+        result,
+        actual_values,
+        row_mask=row_mask,
     )
+    display_channel_totals = {
+        channel: float(np.sum(values))
+        for channel, values in channel_vectors.items()
+    }
+    display_baseline_total = float(np.sum(baseline_vector))
+    display_unexplained_total = float(np.sum(unexplained_vector))
 
     if math.isclose(display_unexplained_total, 0.0, abs_tol=0.5):
         display_unexplained_total = 0.0
 
     return display_channel_totals, display_baseline_total, display_unexplained_total
+
+
+def compute_display_attribution_vectors(
+    result: Any,
+    actual_values: np.ndarray,
+    row_mask: np.ndarray | None = None,
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
+    actual_array = np.asarray(actual_values, dtype=np.float64)
+    if row_mask is None:
+        row_mask = np.ones_like(result.baseline, dtype=bool)
+
+    selected_actuals = np.asarray(actual_array[row_mask], dtype=np.float64)
+    if selected_actuals.size == 0:
+        return (
+            {channel: np.zeros(0, dtype=np.float64) for channel in result.channel_names},
+            np.zeros(0, dtype=np.float64),
+            np.zeros(0, dtype=np.float64),
+        )
+
+    channel_vectors = {
+        channel: np.zeros_like(selected_actuals, dtype=np.float64)
+        for channel in result.channel_names
+    }
+    baseline_vector = np.zeros_like(selected_actuals, dtype=np.float64)
+    unexplained_vector = np.zeros_like(selected_actuals, dtype=np.float64)
+
+    selected_indices = np.flatnonzero(row_mask)
+    for pos, idx in enumerate(selected_indices):
+        actual_value = max(float(selected_actuals[pos]), 0.0)
+        raw_channel_values = {
+            channel: max(float(result.contribution[channel][idx]), 0.0)
+            for channel in result.channel_names
+        }
+        raw_baseline_value = max(float(result.baseline[idx]), 0.0)
+        raw_explained_value = sum(raw_channel_values.values()) + raw_baseline_value
+
+        if math.isclose(raw_explained_value, 0.0):
+            unexplained_vector[pos] = actual_value
+            continue
+
+        scale_factor = min(1.0, actual_value / raw_explained_value)
+        explained_total = 0.0
+        for channel, value in raw_channel_values.items():
+            scaled_value = value * scale_factor
+            channel_vectors[channel][pos] = scaled_value
+            explained_total += scaled_value
+        baseline_vector[pos] = raw_baseline_value * scale_factor
+        explained_total += baseline_vector[pos]
+        unexplained_vector[pos] = max(actual_value - explained_total, 0.0)
+
+    return channel_vectors, baseline_vector, unexplained_vector
 
 
 def build_period_mask(

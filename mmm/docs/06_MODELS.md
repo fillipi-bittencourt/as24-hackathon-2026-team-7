@@ -46,7 +46,7 @@ Marketing Mix Modeling (MMM) attributes sales/outcomes to marketing channels. Co
 
 **Lib:** `pymc`
 
-**Description:** Full Bayesian treatment of coefficients, adstock (θ), saturation (α, k). Priors encode domain knowledge. Outputs credible intervals for CPL and contribution.
+**Description:** Bayesian linear regression on the already-transformed design matrix. Priors encode domain knowledge for intercept, channel coefficients, control coefficients, and noise. Outputs credible intervals for coefficients and CPL.
 
 ---
 
@@ -123,10 +123,13 @@ So the **contribution** of predictor `i` in period `t` is `β_i · x_{i,t}`. Tha
 - **Coefficient order:** Index coefficients so that `coefficients[channel_names[i]]` and control coefficients (if any) match the columns of X. Extract posterior **mean** for point estimates and 94% HDI for `coefficient_lower/upper`.
 - **CPL HDI:** CPL is `raw_spend / attributed_leads`. For each channel, for every posterior draw compute `contribution_sum_draw = (coef_draw[ch] * X[:, ch_idx]).sum()`, then `cpl_draw = raw_spend[ch].sum() / contribution_sum_draw` (guard: if contribution_sum_draw ≤ 0, skip or set cpl_draw to inf). Then `cpl_lower[ch]` = 2.5th percentile of cpl_draws, `cpl_upper[ch]` = 97.5th percentile. Equivalently, get HDI of contribution sum per channel and set `cpl_lower = spend / contribution_upper`, `cpl_upper = spend / contribution_lower` (CPL is inverse of contribution).
 - **R² and RMSE:** Use posterior predictive mean: `y_pred_mean = posterior_mean(intercept) + X @ posterior_mean(coefficients)`. Then R² = 1 - SS_res/SS_tot, RMSE = sqrt(mean((y - y_pred_mean)**2)).
+- **Important scope note:** In the current app, PyMC does **not** estimate adstock or saturation parameters inside the Bayesian model. Those transforms are chosen earlier in `Config`, applied first, and PyMC fits priors only on the regression layer that follows.
 
-### Negative coefficients and CPL (frequentist only)
+### Negative coefficients and business display (frequentist only)
 
 OLS and sklearn models can yield **negative** channel coefficients (e.g. collinearity or weak signal). Then `contribution[ch]` is negative and `sum(contribution[ch])` can be negative, so CPL = spend / contribution would be negative. **Display:** In the UI, when CPL is negative or infinite, show "—" or "N/A" and treat that channel as "negative contribution" in the narrative (e.g. "Reduce or investigate") rather than showing a negative €/lead.
+
+In the current app, the **model fit metrics** (`R²`, `RMSE`, `MAE`, `MAPE`) reflect the **raw fitted model**. The business-facing lead split shown in `Results` is a bounded communication layer built from the raw model output so the displayed `media`, `baseline`, and `unexplained` values remain interpretable for stakeholders.
 
 ### Transforms (adstock then saturation)
 
@@ -146,7 +149,7 @@ OLS and sklearn models can yield **negative** channel coefficients (e.g. colline
 | ElasticNet | sklearn | Frequentist |
 | PyMC | pymc | Bayesian |
 
-**Model validation:** All reported R², RMSE, and attribution are **in-sample**. For out-of-sample validation (e.g. time-based holdout), use a separate workflow or a future enhancement.
+**Model validation:** The app now shows both **in-sample** fit metrics and a simple **time-based holdout** check using the latest 20% of periods as validation data. The final fitted model is still estimated on the full selected dataset for interpretation, while the holdout metrics are there to test generalisation.
 
 **Model selection guidance:** Ridge/Lasso/ElasticNet are preferred when channels are correlated; OLS is a baseline; PyMC gives credible intervals for CPL and coefficients. Use this to choose which models to fit first.
 

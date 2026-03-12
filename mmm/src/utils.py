@@ -95,8 +95,11 @@ def validate_mmm_data(
             f"before modeling. Affected rows: {int(missing_mask.sum())}."
         )
 
-    if len(df) < 2:
-        errors.append("At least 2 rows are required for modeling")
+    minimum_rows = max(30, 3 * (1 + len(channel_cols) + len(controls)))
+    if len(df) < minimum_rows:
+        errors.append(
+            f"At least {minimum_rows} rows are required for stable modeling and holdout validation with the current selected columns."
+        )
 
     if df[date_col].duplicated().any():
         errors.append("Duplicate dates found — each row must represent a unique time period")

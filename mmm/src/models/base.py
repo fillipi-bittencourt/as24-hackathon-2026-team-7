@@ -25,6 +25,47 @@ class ModelResult:
     cpl_upper: dict[str, float] | None = None
 
 
+def build_non_negative_media_prediction(
+    *,
+    X: np.ndarray,
+    channel_names: list[str],
+    intercept: float,
+    channel_coefficients: np.ndarray,
+    control_coefficients: np.ndarray | None = None,
+) -> tuple[dict[str, float], np.ndarray]:
+    X_values = np.asarray(X, dtype=np.float64)
+    n_channels = len(channel_names)
+    clipped_channel_coefficients = np.clip(
+        np.asarray(channel_coefficients, dtype=np.float64),
+        a_min=0.0,
+        a_max=None,
+    )
+    y_pred = np.full(X_values.shape[0], float(intercept), dtype=np.float64)
+    if n_channels > 0:
+        y_pred += X_values[:, :n_channels] @ clipped_channel_coefficients
+    if control_coefficients is not None and len(control_coefficients) > 0:
+        y_pred += X_values[:, n_channels:] @ np.asarray(control_coefficients, dtype=np.float64)
+
+    coefficients = {
+        channel_names[idx]: float(clipped_channel_coefficients[idx])
+        for idx in range(n_channels)
+    }
+    return coefficients, y_pred
+
+
+def compute_r_squared_and_rmse(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+) -> tuple[float, float]:
+    y_true_values = np.asarray(y_true, dtype=np.float64)
+    y_pred_values = np.asarray(y_pred, dtype=np.float64)
+    ss_res = float(np.sum((y_true_values - y_pred_values) ** 2))
+    ss_tot = float(np.sum((y_true_values - np.mean(y_true_values)) ** 2)) or 1.0
+    r_squared = 1.0 - (ss_res / ss_tot)
+    rmse = float(np.sqrt(np.mean((y_true_values - y_pred_values) ** 2)))
+    return float(r_squared), rmse
+
+
 def build_model_result(
     *,
     model_name: str,

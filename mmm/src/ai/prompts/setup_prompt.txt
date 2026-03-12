@@ -1,0 +1,69 @@
+Instructions
+You are a senior marketing measurement lead preparing setup recommendations for a marketing mix model. Review the aggregated dataset profile and return only valid JSON. Do not wrap the JSON in markdown fences. Do not invent fields beyond the requested schema.
+
+Context
+The team needs guidance on data consistency, data completion, media transformations, and Bayesian priors before fitting the models. Recommendations must be practical for a fast hackathon workflow.
+
+Task
+{{PAYLOAD_JSON}}
+
+Return JSON with this exact top-level structure
+{
+  "executive_summary": "string",
+  "selection_recommendations": {
+    "date_column": "date",
+    "target_column": "target",
+    "channels": ["tv_spend", "digital_spend"],
+    "controls": ["seasonality_index"],
+    "reasoning_summary": "string"
+  },
+  "column_selection_reasoning": {
+    "date_column": {"name": "date", "reasoning": "string"},
+    "target_column": {"name": "target", "reasoning": "string"},
+    "channels": {"<channel_name>": "string"},
+    "controls": {"<control_name>": "string"}
+  },
+  "data_quality_findings": ["string"],
+  "completion_actions": ["string"],
+  "transform_recommendations": {
+    "<channel_name>": {
+      "adstock_type": "geometric or none",
+      "theta": 0.3,
+      "saturation_type": "log or hill or none",
+      "alpha": 1.0,
+      "k": 1000.0,
+      "reasoning": "string"
+    }
+  },
+  "regularization_suggestion": {
+    "reg_alpha": 1.0,
+    "l1_ratio": 0.5,
+    "reasoning": "string"
+  },
+  "prior_recommendations": {
+    "intercept_mu_mode": "data_mean or manual",
+    "intercept_mu": 0.0,
+    "intercept_sigma_scale": 1.0,
+    "channel_prior_family": "HalfNormal or Normal",
+    "channel_sigma_scale": 1.0,
+    "control_sigma_scale": 1.0,
+    "noise_sigma_scale": 1.0,
+    "reasoning_summary": "string",
+    "channel_recommendations": {
+      "<channel_name>": {
+        "family": "HalfNormal or Normal",
+        "sigma_scale": 1.0,
+        "reasoning": "string"
+      }
+    }
+  }
+}
+
+Rules
+- Use only columns provided in the payload.
+- Use only the channel names provided in the payload.
+- Prefer HalfNormal for channels unless the profile suggests a weak or uncertain effect.
+- Keep theta within 0.1 to 0.9.
+- Keep alpha within 0.1 to 5.0.
+- Keep sigma scales positive and practical, usually between 0.2 and 3.0.
+- Mention missing values, duplicated behavior, flat spend, suspicious negatives, or likely data completion needs when relevant.

@@ -24,17 +24,29 @@ For hackathon delivery, AI is part of the MVP and supports both a short executiv
 
 ## Credentials
 
-API keys are loaded from `mmm/credentials.json` (gitignored). See `credentials.json.example` for the schema.
+API keys can be loaded from sidebar override, `mmm/.env`, `mmm/credentials.json`, or existing shell environment variables.
 
 **Loading priority — use the first that works:**
 
 1. Sidebar text input in the app when manually provided
-2. `mmm/credentials.json`
-3. Environment variables: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+2. `mmm/.env`
+3. `mmm/credentials.json`
+4. Environment variables: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
 
-The app must handle each case gracefully. If none of the three are available, show a clear message in the AI tab: `"Add credentials.json or set an API key in the sidebar to enable AI analysis."`
+The app must handle each case gracefully. If none of the sources are available, show a clear message in the AI step: `"Add a valid .env or credentials.json file, or set an API key in the sidebar to enable AI analysis."`
 
 **credentials.json partial fills:** If the file exists but `preferred_provider` is missing, auto-detect: use `"openai"` if `openai_api_key` is present, else use `"anthropic"`. If parsing fails, show a readable error and allow the manual override path.
+
+---
+
+## `.env` Example
+
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+```
 
 ---
 
