@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 049
+- Task
+  Keep only mock CSVs in git
+- Change
+  Updated the ignore rules and added a Cursor rule so only `mmm/data/mmm_demo_sample.csv` may be committed as CSV, then removed `mmm/data/data.csv` from version control while keeping it local
+- Files
+  `.gitignore`, `mmm/.gitignore`, `.cursor/rules/mockdata-only-csvs.mdc`, `mmm/data/data.csv`, `CHANGELOG.md`
+- Reason
+  Prevent business CSV files from being committed or pushed while still allowing the mock demo dataset to stay in the repo
+
 ### 048
 - Task
   Export source provenance

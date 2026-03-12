@@ -30,13 +30,14 @@ credentials.json
 # Streamlit
 .streamlit/secrets.toml
 
-# Data files (business data must not be committed; mmm/data/.gitkeep and mmm/data/README.md are tracked)
-data/*.csv
+# Data files
+# No CSVs should be committed except the mock dataset used for demos.
+*.csv
 data/*.parquet
 data/*.xlsx
-mmm/data/*.csv
 mmm/data/*.parquet
 mmm/data/*.xlsx
+!mmm/data/mmm_demo_sample.csv
 
 # macOS
 .DS_Store

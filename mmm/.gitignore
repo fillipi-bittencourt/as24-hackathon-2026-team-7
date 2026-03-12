@@ -25,7 +25,8 @@ build/
 # Streamlit
 .streamlit/secrets.toml
 
-# Data files (business data must not be committed; .gitkeep stays)
+# Data files
+# No CSVs should be committed except the mock dataset used for demos.
 data/*.csv
 data/*.parquet
 data/*.xlsx
