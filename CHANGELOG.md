@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 012
+- Task
+  Deck build guide
+- Change
+  Added a markdown guide for the team on how to structure a 6 slide plus demo presentation around the decision framework
+- Files
+  `docs/DECK_BUILD_INSTRUCTIONS.md`, `CHANGELOG.md`
+- Reason
+  Give the team a reusable presentation guide that matches the product story and audience needs
+
 ### 011
 - Task
   Better tab guidance
