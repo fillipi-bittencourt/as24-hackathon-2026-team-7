@@ -605,7 +605,15 @@ def load_candidate_dataframe() -> pd.DataFrame | None:
 
 def default_channel_selection(columns: list[str], date_col: str | None, target_col: str | None) -> list[str]:
     blocked = {date_col, target_col}
-    return [col for col in columns if col not in blocked and col.endswith("_spend")]
+    return [
+        col
+        for col in columns
+        if col not in blocked
+        and (
+            col.endswith("_spend")
+            or col.endswith("_cost")
+        )
+    ]
 
 
 def render_data_tab() -> None:
@@ -1531,6 +1539,7 @@ def render_results_tab() -> None:
     )
     st.session_state["selected_model"] = selected_model
     result = st.session_state["model_results"][selected_model]
+    loaded_source = st.session_state.get("loaded_source", "unknown_source")
     date_col = st.session_state["date_col"]
     date_series = st.session_state["df"][date_col]
     period_options = ["All data", "Last 4 weeks", "Last 8 weeks", "Last 12 weeks", "Last 26 weeks"]
@@ -2010,6 +2019,7 @@ def render_results_tab() -> None:
 
     overview_export_df = pd.DataFrame(
         [
+            {"Metric": "Source file", "Value": loaded_source},
             {"Metric": "Model", "Value": selected_model},
             {"Metric": "Period", "Value": selected_period},
             {"Metric": "Total leads", "Value": round(actual_total, 2)},
@@ -2059,6 +2069,7 @@ def render_results_tab() -> None:
         data=build_results_pdf_bytes(
             selected_model,
             selected_period,
+            loaded_source,
             overview_export_df,
             channel_export_df,
             comparison_export_df,
@@ -2129,6 +2140,7 @@ def render_ai_tab() -> None:
         iter(st.session_state["model_results"].keys())
     )
     result = st.session_state["model_results"][selected_model]
+    loaded_source = st.session_state.get("loaded_source", "unknown_source")
     selected_period = st.session_state.get("results_period", "All data")
     selected_visual_channels = st.session_state.get("selected_visual_channels") or result.channel_names
     date_col = st.session_state["date_col"]
@@ -2257,6 +2269,7 @@ def render_ai_tab() -> None:
                         "generated_at": (ai_summary_meta.get("generated_at") or datetime.now().isoformat(timespec="seconds")),
                         "provider": ai_summary_meta.get("provider", provider),
                         "model": model,
+                    "source_file": loaded_source,
                         "selected_model": generated_for_model or selected_model,
                         "results_period": generated_for_period or selected_period,
                         "analysis": st.session_state["ai_summary"],
@@ -2285,6 +2298,7 @@ def render_ai_tab() -> None:
 
             overview_export_df = pd.DataFrame(
                 [
+                {"Metric": "Source file", "Value": loaded_source},
                     {"Metric": "Model", "Value": selected_model},
                     {"Metric": "Period", "Value": selected_period},
                     {"Metric": "Total leads", "Value": round(actual_total, 2)},
@@ -2322,6 +2336,7 @@ def render_ai_tab() -> None:
             complete_overview_df = build_complete_overview_export_df(
                 selected_model=selected_model,
                 selected_period=selected_period,
+            source_name=loaded_source,
                 overview_df=overview_export_df,
                 comparison_df=comparison_export_df,
                 channel_df=channel_export_df,
@@ -2331,6 +2346,7 @@ def render_ai_tab() -> None:
             complete_overview_pdf = build_complete_overview_pdf_bytes(
                 selected_model=selected_model,
                 selected_period=selected_period,
+            source_name=loaded_source,
                 overview_df=overview_export_df,
                 comparison_df=comparison_export_df,
                 channel_df=channel_export_df,

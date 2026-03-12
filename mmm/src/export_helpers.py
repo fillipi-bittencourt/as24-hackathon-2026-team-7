@@ -49,6 +49,7 @@ def build_text_pdf_bytes(title: str, sections: list[tuple[str, str]]) -> bytes:
 def build_results_pdf_bytes(
     selected_model: str,
     selected_period: str,
+    source_name: str,
     overview_df: pd.DataFrame,
     channel_df: pd.DataFrame,
     comparison_df: pd.DataFrame,
@@ -56,7 +57,7 @@ def build_results_pdf_bytes(
     sections = [
         (
             "overview",
-            f"model {selected_model}\nperiod {selected_period}\n\n"
+            f"model {selected_model}\nperiod {selected_period}\nsource {source_name}\n\n"
             + overview_df.to_string(index=False),
         ),
         (
@@ -137,6 +138,7 @@ def build_complete_overview_export_df(
     *,
     selected_model: str,
     selected_period: str,
+    source_name: str,
     overview_df: pd.DataFrame,
     comparison_df: pd.DataFrame,
     channel_df: pd.DataFrame,
@@ -229,7 +231,7 @@ def build_complete_overview_export_df(
             "section": "results_context",
             "item": "current_view",
             "value": (
-                f"model={selected_model}, period={selected_period}, "
+                f"source={source_name}, model={selected_model}, period={selected_period}, "
                 f"channels={', '.join(st.session_state.get('selected_visual_channels') or []) or 'all'}"
             ),
             "reasoning": "Current filters used for the final overview export.",
@@ -286,6 +288,7 @@ def build_complete_overview_pdf_bytes(
     *,
     selected_model: str,
     selected_period: str,
+    source_name: str,
     overview_df: pd.DataFrame,
     comparison_df: pd.DataFrame,
     channel_df: pd.DataFrame,
@@ -343,6 +346,7 @@ def build_complete_overview_pdf_bytes(
                 [
                     f"model {selected_model}",
                     f"period {selected_period}",
+                    f"source {source_name}",
                     f"selected channels {', '.join(st.session_state.get('selected_visual_channels') or []) or 'all'}",
                     "",
                     overview_df.to_string(index=False),

@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 048
+- Task
+  Export source provenance
+- Change
+  Updated the results, AI, and complete overview exports so they explicitly include the source filename from the loaded dataset, making it clear whether the artifacts were generated from `data.csv` or another file
+- Files
+  `mmm/app.py`, `mmm/src/export_helpers.py`, `CHANGELOG.md`
+- Reason
+  Make exported artifacts auditable and remove ambiguity about which dataset was used during a run
+
 ### 047
 - Task
   Include business dataset and pending app updates
