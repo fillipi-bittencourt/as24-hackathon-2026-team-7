@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 010
+- Task
+  PyMC verification and environment fix
+- Change
+  Fixed the Bayesian interval calculation, added graceful fit error handling, pinned SciPy to a compatible range, and verified the full Priors to PyMC to Results path in the live app
+- Files
+  `mmm/src/models/pymc_model.py`, `mmm/app.py`, `mmm/requirements.txt`, `mmm/requirements-mvp.txt`, `mmm/docs/10_BUILD_MMM.md`, `CHANGELOG.md`
+- Reason
+  Make the Bayesian option actually usable in the current environment and record the verified task completion in the build doc
+
 ### 009
 - Task
   Priors tab and PyMC app wiring

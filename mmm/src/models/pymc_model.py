@@ -18,7 +18,6 @@ class PyMCModel:
         **kwargs,
     ) -> ModelResult:
         try:
-            import arviz as az
             import pymc as pm
         except ImportError as exc:
             raise ValueError("PyMC is not installed in this environment") from exc
@@ -151,18 +150,19 @@ class PyMCModel:
         baseline = np.clip(baseline, 0, None)
         baseline_pct = float(np.sum(baseline)) / y_pred_total
 
-        channel_hdi = az.hdi(
-            posterior["channel_coefs"],
-            hdi_prob=0.94,
-        ).to_array().values
+        channel_draws = np.asarray(
+            posterior["channel_coefs"].stack(sample=("chain", "draw")).values,
+            dtype=np.float64,
+        )
         coefficient_lower = {
-            channel_names[idx]: float(channel_hdi[0, idx]) for idx in range(n_channels)
+            channel_names[idx]: float(np.percentile(channel_draws[idx], 3.0))
+            for idx in range(n_channels)
         }
         coefficient_upper = {
-            channel_names[idx]: float(channel_hdi[1, idx]) for idx in range(n_channels)
+            channel_names[idx]: float(np.percentile(channel_draws[idx], 97.0))
+            for idx in range(n_channels)
         }
 
-        channel_draws = posterior["channel_coefs"].stack(sample=("chain", "draw")).values
         cpl_lower: dict[str, float] = {}
         cpl_upper: dict[str, float] = {}
         for idx, ch in enumerate(channel_names):

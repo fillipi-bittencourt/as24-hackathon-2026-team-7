@@ -294,7 +294,7 @@ def render_data_tab() -> None:
             st.session_state["target_col"],
             *st.session_state["channel_cols"],
         ]
-        st.dataframe(df[preview_cols].head(10), use_container_width=True)
+        st.dataframe(df[preview_cols].head(10), width="stretch")
 
 
 def render_config_tab() -> None:
@@ -587,24 +587,27 @@ def render_fit_tab() -> None:
     for model_name in models_to_run:
         builder = MODEL_BUILDERS[model_name]
         with st.spinner(f"Fitting {model_name}"):
-            model = builder()
-            kwargs: dict[str, Any] = {
-                "channel_names": st.session_state["channel_cols"],
-                "control_names": st.session_state["control_cols"],
-            }
-            if model_name == "Ridge":
-                kwargs["reg_alpha"] = st.session_state["reg_alpha"]
-            if model_name == "PyMC":
-                kwargs["prior_config"] = st.session_state["pymc_prior_config"]
-                kwargs["sampler_config"] = st.session_state["pymc_sampler_config"]
-                st.info("PyMC can take longer than OLS and Ridge.")
-            result = model.fit(X, y, raw_spend=raw_spend, **kwargs)
-            result.model_name = model_name
-            st.session_state["model_results"][model_name] = result
-            st.session_state["model_results_meta"][model_name] = {
-                "fitted_at": datetime.now().isoformat(timespec="seconds")
-            }
-            st.success(f"{model_name}: R² = {result.r_squared:.2f}, RMSE = {result.rmse:,.0f}")
+            try:
+                model = builder()
+                kwargs: dict[str, Any] = {
+                    "channel_names": st.session_state["channel_cols"],
+                    "control_names": st.session_state["control_cols"],
+                }
+                if model_name == "Ridge":
+                    kwargs["reg_alpha"] = st.session_state["reg_alpha"]
+                if model_name == "PyMC":
+                    kwargs["prior_config"] = st.session_state["pymc_prior_config"]
+                    kwargs["sampler_config"] = st.session_state["pymc_sampler_config"]
+                    st.info("PyMC can take longer than OLS and Ridge.")
+                result = model.fit(X, y, raw_spend=raw_spend, **kwargs)
+                result.model_name = model_name
+                st.session_state["model_results"][model_name] = result
+                st.session_state["model_results_meta"][model_name] = {
+                    "fitted_at": datetime.now().isoformat(timespec="seconds")
+                }
+                st.success(f"{model_name}: R² = {result.r_squared:.2f}, RMSE = {result.rmse:,.0f}")
+            except Exception as exc:
+                st.error(f"{model_name} failed: {exc}")
 
     if st.session_state["model_results"] and not st.session_state.get("selected_model"):
         st.session_state["selected_model"] = next(iter(st.session_state["model_results"].keys()))
@@ -643,7 +646,7 @@ def render_results_tab() -> None:
 
     st.subheader("Model comparison")
     comparison_df = build_model_comparison_df()
-    st.dataframe(comparison_df, use_container_width=True)
+    st.dataframe(comparison_df, width="stretch")
 
     coefficient_df = pd.DataFrame(
         {
@@ -654,7 +657,7 @@ def render_results_tab() -> None:
             for name in model_names
         }
     )
-    st.dataframe(coefficient_df, use_container_width=True)
+    st.dataframe(coefficient_df, width="stretch")
 
     cpl_df = pd.DataFrame(
         {
@@ -665,7 +668,7 @@ def render_results_tab() -> None:
             for name in model_names
         }
     )
-    st.dataframe(cpl_df, use_container_width=True)
+    st.dataframe(cpl_df, width="stretch")
     st.caption("All reported R², RMSE, and attribution are in-sample.")
 
     total_contribution = sum(float(series.sum()) for series in result.contribution.values())
@@ -702,7 +705,7 @@ def render_results_tab() -> None:
             row["CPL upper"] = format_cpl(result.cpl_upper[channel])
         why_rows.append(row)
     why_df = pd.DataFrame(why_rows)
-    st.dataframe(why_df, use_container_width=True)
+    st.dataframe(why_df, width="stretch")
 
     cpl_chart = {
         channel: value
@@ -759,7 +762,7 @@ def render_results_tab() -> None:
                     "Carryover": carryover,
                 }
             )
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch")
 
     with st.expander("Quick Insights", expanded=False):
         media_total = sum(float(result.contribution[ch].sum()) for ch in result.channel_names)

@@ -283,7 +283,7 @@ Store results per model in `session_state["model_results"]` keyed by model name 
 
 ## Step 4 — PyMC and priors
 
-- [ ] **4.1** Create `mmm/src/models/pymc_model.py`. Implement as a Bayesian linear regression using PyMC with the following priors and sampler settings:
+- [V] **4.1** Create `mmm/src/models/pymc_model.py`. Implement as a Bayesian linear regression using PyMC with the following priors and sampler settings:
   - **Reproducibility:** Use a fixed `random_seed` (e.g. `random_seed=42`) in `pm.sample(...)` so the same data and config produce the same posterior.
   - **Column order:** X has shape (n, n_channels + n_controls). Define one coefficient per column; first n_channels are channel coefficients, rest are control coefficients. Use the same `channel_names` and column order as in OLS/sklearn.
   - **Priors:** Intercept: `Normal(mu=y.mean(), sigma=y.std())`. Channel coefficients: `HalfNormal(sigma=y.std())` for each channel (positive-only; media should not have negative effect). **Control coefficients** (if n_controls > 0): use `Normal(0, y.std())` so they can be positive or negative. Noise (sigma): `HalfNormal(sigma=y.std())`.
@@ -294,9 +294,9 @@ Store results per model in `session_state["model_results"]` keyed by model name 
   - **CPL HDI:** For each channel, for every posterior draw compute total attributed leads = `(coef_draw[ch] * X[:, ch_idx]).sum()`; then `cpl_draw = raw_spend[ch].sum() / attributed_leads_draw` (if attributed_leads_draw <= 0 use inf). Set `cpl_lower[ch]` = 2.5th percentile of cpl_draws, `cpl_upper[ch]` = 97.5th percentile. Equivalently: get 94% HDI of (sum of contribution[ch] over time) per channel; then cpl_lower = spend / contribution_upper, cpl_upper = spend / contribution_lower.
   - **R² and RMSE:** Use posterior mean of intercept and coefficients to compute y_pred_mean; then r_squared = 1 - SS_res/SS_tot, rmse = sqrt(mean((y - y_pred_mean)**2)). Return ModelResult with coefficient/CPL posterior means and HDI bounds (`cpl_lower`, `cpl_upper`).
 
-- [ ] **4.2** Fit tab: when PyMC is selected (among others), show `st.info("PyMC is slower than OLS and Ridge. Use the Priors tab to adjust the Bayesian settings before you fit it.")`. On "Fit selected" / "Fit all", run PyMC like other models and store in `session_state["model_results"]["PyMC"]`.
+- [V] **4.2** Fit tab: when PyMC is selected (among others), show `st.info("PyMC is slower than OLS and Ridge. Use the Priors tab to adjust the Bayesian settings before you fit it.")`. On "Fit selected" / "Fit all", run PyMC like other models and store in `session_state["model_results"]["PyMC"]`.
 
-- [ ] **Check (Step 4):** Open Priors, save the settings, then select PyMC in Fit tab and run fit.
+- [V] **Check (Step 4):** Open Priors, save the settings, then select PyMC in Fit tab and run fit.
   - DoD:
     - PyMC completes in fast mode without crashing the app
     - result stores coefficient and CPL intervals
