@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 007
+- Task
+  MVP verification
+- Change
+  Ran a browser smoke test against the live Streamlit app and marked the verified check steps in the build document
+- Files
+  `mmm/docs/10_BUILD_MMM.md`, `CHANGELOG.md`
+- Reason
+  Confirm the current MVP path works end to end before moving on to any further development or stretch work
+
 ### 006
 - Task
   MVP app shell and task sync

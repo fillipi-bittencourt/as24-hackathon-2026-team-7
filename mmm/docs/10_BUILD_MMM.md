@@ -177,7 +177,7 @@ Store results per model in `session_state["model_results"]` keyed by model name 
   - Downstream: when building `X_transformed` and `y`, ensure numpy arrays are dtype **float64** (e.g. `y = df[target_col].values.astype(np.float64)`).
   - Fit tab is gated on `valid` and `transforms_applied` — see Step 7.3.
 
-- [ ] **Check (Step 1):** Run the app; open Data tab; upload/select CSV; pick date/target/channels; click validate.
+- [V] **Check (Step 1):** Run the app; open Data tab; upload/select CSV; pick date/target/channels; click validate.
   - DoD:
     - `session_state["valid"] == True` on valid input
     - success message includes row count and selected columns
@@ -211,7 +211,7 @@ Store results per model in `session_state["model_results"]` keyed by model name 
     - If the new fingerprint differs from the previous fingerprint: clear `session_state["model_results"]`, clear `session_state["selected_model"]`, and show `st.warning("Transforms changed — previously fitted models have been cleared. Re-fit your models.")`.
     - If only regularization params (`reg_alpha`, `l1_ratio`) changed and the fingerprint is unchanged: do not clear `model_results`; show `st.info("Only regularization changed. Re-fit in the Fit tab to update models with new alpha/l1_ratio.")`.
 
-- [ ] **Check (Step 2):** With valid data loaded, open Config tab and click "Apply transforms".
+- [V] **Check (Step 2):** With valid data loaded, open Config tab and click "Apply transforms".
   - DoD:
     - `session_state["X_transformed"]` exists and is float64 2D array
     - `session_state["y"]` exists and is float64 1D array
@@ -271,7 +271,7 @@ Store results per model in `session_state["model_results"]` keyed by model name 
 
   **Run models in series:** When the user clicks "Fit selected" or "Fit all", run the selected models **in series** (one after the other, sequentially). Do not run fits in parallel. Use a fixed order: e.g. for "Fit all" run OLS, then Ridge, then Lasso, then ElasticNet, then PyMC (or the order of the multiselect for "Fit selected"). For each model in turn: show `st.spinner("Fitting [name]...")`, read `X_transformed` and `y` from session_state (both float64), build `raw_spend = {ch: df[ch].values for ch in channel_cols}`, call `model.fit(X_transformed, y, raw_spend=raw_spend, **reg_params)`, store result in `session_state["model_results"][model_name]`, set `model_name` on the ModelResult to the same key, show status ("✓ OLS: R² = 0.72, RMSE = 12,450"), then proceed to the next model.   **Reproducibility:** When storing each result, also store a **model fitted timestamp**: e.g. `session_state["model_fitted_at"] = datetime.now().isoformat()` (single timestamp for last fit) or per-model `session_state["model_results_meta"][model_name]["fitted_at"] = ...`. Display "Model fitted on: &lt;date/time&gt;" (or "Data as of: &lt;max date in df&gt;") in the Results tab so reports are auditable. Results tab is enabled when `session_state.get("model_results")` is non-empty.
 
-- [ ] **Check (Step 3):** With transforms applied, open Fit tab and run OLS (and Ridge for MVP).
+- [V] **Check (Step 3):** With transforms applied, open Fit tab and run OLS (and Ridge for MVP).
   - DoD:
     - spinner appears during fit
     - status line shows model name, R², RMSE
@@ -318,7 +318,7 @@ Store results per model in `session_state["model_results"]` keyed by model name 
 - [V] **5.5** Section **"Why is it happening?"** (for selected model): `st.dataframe` — base columns: Channel, Coefficient, **CPL (€ per lead)**, Contribution (leads), Share (%). **CPL display:** When formatting CPL for display, if value is `math.isinf(cpl)` or very large, show `"—"` or `"N/A"` instead of the raw number. Optionally add **Share of actual**: `sum(contribution[ch]) / sum(y_actual)` so users can compare model attribution to the real total. Only add Coeff CI (lower–upper) and **CPL CI** columns if `hasattr(result, "coefficient_lower")` — i.e. only when the selected model is PyMC. For non-PyMC models these fields do not exist and must not be shown. Below the table, use `st.bar_chart` for **CPL by channel**: create a dataframe with channel names as index and CPL as values, **sort ascending** (best/lowest CPL first).
 - [V] **5.6** Section **"What should leadership do next?"** (for selected model): three bullet points — (1) `"Invest more in [lowest CPL channel] — currently €X per lead"`, (2) `"Reduce spend on [highest CPL channel] — €X per lead"`, (3) `"Reallocate [N]% of [highest CPL channel] budget to [lowest CPL channel] — directional heuristic based on current modelled CPL"`. Compute the reallocation % as `min(50, round((cpl_worst - cpl_best) / cpl_worst * 100))` (relative CPL improvement if shifting spend from worst to best). Add a short note that this is a directional recommendation, not a forecast.
 
-- [ ] **Check (Step 5):** With at least one model fitted, open Results tab.
+- [V] **Check (Step 5):** With at least one model fitted, open Results tab.
   - DoD:
     - model comparison table renders for all fitted models
     - coefficient comparison table renders for all fitted models
@@ -478,7 +478,7 @@ Implement as:
   ```
 - [V] **7.4** Imports at the top of app.py for MVP: `from src.utils import validate_mmm_data`, `from src.transforms import transform_media`, `from src.models.ols import OLSModel`, `from src.models.ridge import RidgeModel`, `from src.ai.client import load_credentials, build_payload, build_prompt, get_summary`. Add `LassoModel`, `ElasticNetModel`, and `PyMCModel` imports only when those files are implemented, or load them lazily behind feature checks. Run from `mmm/` so relative imports resolve.
 
-- [ ] **Check (Step 7):** Run `streamlit run app.py` from `mmm/`.
+- [V] **Check (Step 7):** Run `streamlit run app.py` from `mmm/`.
   - DoD:
     - all five tabs render
     - gated tabs show guidance messages instead of tracebacks
