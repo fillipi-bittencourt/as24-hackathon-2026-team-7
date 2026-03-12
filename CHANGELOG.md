@@ -11,6 +11,26 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 046
+- Task
+  Commit and push workflow rule
+- Change
+  Added an always-apply Cursor rule that instructs the agent to work like a developer and commit plus push after each completed task while excluding unrelated local artifacts
+- Files
+  `.cursor/rules/commit-and-push-workflow.mdc`, `CHANGELOG.md`
+- Reason
+  Make the expected delivery workflow persistent so future work is committed and pushed task by task instead of being left local
+
+### 045
+- Task
+  AI setup explanation block
+- Change
+  Added an explicit “AI applied this setup because” summary in the Data step so stakeholders can see how the ingested-data evaluation drove the selected columns, transforms, priors, and data-quality actions
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the AI-driven setup auditable and understandable instead of leaving it as a black-box automation step
+
 ### 044
 - Task
   Full project consistency and stability pass
