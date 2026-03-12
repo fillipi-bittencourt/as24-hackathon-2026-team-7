@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 003
+- Task
+  Transform functions
+- Change
+  Added geometric adstock, hill saturation, log saturation, and the shared media transform pipeline with the default spend path set to Geometric plus Log
+- Files
+  `mmm/src/transforms.py`
+- Reason
+  Make the config step produce model-ready float64 inputs with the repo default transformation order
+
 ### 002
 - Task
   Data layer utilities
