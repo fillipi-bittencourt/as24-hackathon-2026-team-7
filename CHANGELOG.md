@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 008
+- Task
+  PyMC model implementation
+- Change
+  Added the Bayesian model class with configurable prior settings, posterior mean predictions, and interval outputs for coefficients and CPL
+- Files
+  `mmm/src/models/pymc_model.py`, `mmm/src/models/__init__.py`
+- Reason
+  Add the PyMC path as a real model option before wiring the priors controls into the app
+
 ### 007
 - Task
   MVP verification
