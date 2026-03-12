@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 047
+- Task
+  Include business dataset and pending app updates
+- Change
+  Added the business `data.csv` file to version control and committed the pending app changes so the repo reflects the current working MMM setup and data source
+- Files
+  `mmm/data/data.csv`, `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Avoid omitting the main dataset from the branch and keep the repository aligned with the actual app state being used
+
 ### 046
 - Task
   Commit and push workflow rule

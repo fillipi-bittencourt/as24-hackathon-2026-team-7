@@ -104,6 +104,99 @@ def render_reference_values_expander(
         )
 
 
+def render_ai_applied_setup_summary(
+    setup_recommendations: dict[str, Any],
+) -> None:
+    selection = setup_recommendations.get("selection_recommendations", {})
+    column_reasoning = setup_recommendations.get("column_selection_reasoning", {})
+    transform_recommendations = setup_recommendations.get("transform_recommendations", {})
+    prior_recommendations = setup_recommendations.get("prior_recommendations", {})
+
+    st.subheader("AI applied this setup because")
+    st.caption(
+        "This summary explains how the AI evaluation of the ingested dataset changed the working MMM configuration."
+    )
+    summary_text = str(setup_recommendations.get("executive_summary", "")).strip()
+    if summary_text:
+        st.markdown(summary_text)
+
+    col1, col2 = st.columns(2)
+    col1.markdown("**Column selection applied**")
+    col1.write(f"- Date column: `{st.session_state.get('date_col')}`")
+    col1.write(f"- Target column: `{st.session_state.get('target_col')}`")
+    col1.write(
+        "- Channels: "
+        + (", ".join(f"`{channel}`" for channel in st.session_state.get("channel_cols", [])) or "None")
+    )
+    col1.write(
+        "- Controls: "
+        + (", ".join(f"`{control}`" for control in st.session_state.get("control_cols", [])) or "None")
+    )
+    if selection.get("reasoning_summary"):
+        col1.caption(str(selection["reasoning_summary"]))
+
+    col2.markdown("**Transform and prior setup applied**")
+    col2.write(
+        "- Default channel prior family: "
+        + f"`{st.session_state['pymc_prior_config'].get('channel_prior_family', 'HalfNormal')}`"
+    )
+    col2.write(
+        "- Regularization alpha: "
+        + f"`{st.session_state.get('reg_alpha', 1.0):.2f}`"
+    )
+    col2.write(
+        "- ElasticNet l1 ratio: "
+        + f"`{st.session_state.get('l1_ratio', 0.5):.2f}`"
+    )
+    if prior_recommendations.get("reasoning_summary"):
+        col2.caption(str(prior_recommendations["reasoning_summary"]))
+
+    reasoning_rows = []
+    for channel in st.session_state.get("channel_cols", []):
+        transform_choice = transform_recommendations.get(channel, {})
+        column_note = column_reasoning.get("channels", {}).get(channel, "")
+        prior_note = st.session_state.get("pymc_prior_reasoning", {}).get(channel, "")
+        reasoning_rows.append(
+            {
+                "Channel": channel,
+                "Applied adstock": st.session_state["adstock_type"].get(channel, "geometric"),
+                "Applied theta": round(float(st.session_state["adstock_params"].get(channel, 0.0)), 3),
+                "Applied saturation": st.session_state["saturation_type"].get(channel, "log"),
+                "Applied alpha": round(
+                    float(st.session_state["saturation_params"].get(channel, {}).get("alpha", 1.0)),
+                    3,
+                ),
+                "Applied k": round(
+                    float(st.session_state["saturation_params"].get(channel, {}).get("k", 0.0)),
+                    3,
+                ),
+                "Why this channel was included": column_note or "Selected as a media driver by the AI setup review.",
+                "Why this transform was chosen": str(transform_choice.get("reasoning", "")) or "No transform reasoning returned.",
+                "Why this prior was chosen": prior_note or "No channel-specific prior reasoning returned.",
+            }
+        )
+    if reasoning_rows:
+        reasoning_df = pd.DataFrame(reasoning_rows)
+        st.dataframe(
+            reasoning_df,
+            column_config=build_table_column_config(reasoning_df.columns),
+            width="stretch",
+        )
+
+    quality_findings = setup_recommendations.get("data_quality_findings", [])
+    completion_actions = setup_recommendations.get("completion_actions", [])
+    if quality_findings or completion_actions:
+        quality_col1, quality_col2 = st.columns(2)
+        if quality_findings:
+            quality_col1.markdown("**Data quality findings used by the AI**")
+            for item in quality_findings:
+                quality_col1.write(f"- {item}")
+        if completion_actions:
+            quality_col2.markdown("**Data completion actions suggested by the AI**")
+            for item in completion_actions:
+                quality_col2.write(f"- {item}")
+
+
 def build_table_column_config(columns: list[str] | pd.Index) -> dict[str, Any]:
     help_text = {
         "Date": "The date or period represented by the row.",
@@ -755,9 +848,7 @@ def render_data_tab() -> None:
 
             setup_recommendations = st.session_state.get("ai_setup_recommendations")
             if setup_recommendations:
-                summary = setup_recommendations.get("executive_summary")
-                if summary:
-                    st.markdown(summary)
+                render_ai_applied_setup_summary(setup_recommendations)
 
                 column_reasoning_rows = []
                 for row in build_column_selection_rows():
