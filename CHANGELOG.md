@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 005
+- Task
+  MVP AI summary client
+- Change
+  Added credential loading, payload building, prompt generation, and the summary client for the single-model AI path
+- Files
+  `mmm/src/ai/__init__.py`, `mmm/src/ai/client.py`
+- Reason
+  Keep AI in the MVP without blocking the app when credentials or providers are missing
+
 ### 004
 - Task
   MVP model layer
