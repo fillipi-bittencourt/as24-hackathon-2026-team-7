@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 004
+- Task
+  MVP model layer
+- Change
+  Added the shared `ModelResult` contract, attribution builder, and MVP `OLS` and `Ridge` model classes
+- Files
+  `mmm/src/models/__init__.py`, `mmm/src/models/base.py`, `mmm/src/models/ols.py`, `mmm/src/models/ridge.py`
+- Reason
+  Let the app fit the first two models needed for the hackathon MVP and keep a shared output shape for Results and AI
+
 ### 003
 - Task
   Transform functions
