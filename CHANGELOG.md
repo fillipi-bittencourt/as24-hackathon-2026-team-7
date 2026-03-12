@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 016
+- Task
+  Five model verification
+- Change
+  Verified the full live flow with OLS, Ridge, Lasso, ElasticNet, and PyMC, including transforms, priors, comparisons, results filters, and AI rendering
+- Files
+  `CHANGELOG.md`
+- Reason
+  Confirm the app now truly supports all five models end to end
+
 ### 015
 - Task
   Five model app wiring
