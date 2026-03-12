@@ -99,6 +99,3 @@ def validate_mmm_data(
                 )
 
     return True, [], warnings
-"""Data conversion and validation for MMM. See docs/04_DATA_MODEL.md and 10_BUILD_MMM.md Step 1."""
-
-# To be implemented: convert_mmm_data(), validate_mmm_data()

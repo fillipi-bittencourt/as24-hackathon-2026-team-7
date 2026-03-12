@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 006
+- Task
+  MVP app shell and task sync
+- Change
+  Replaced the placeholder app with the MVP Streamlit flow, wired Data, Config, Fit, Results, and AI tabs, and marked the completed build items in `mmm/docs/10_BUILD_MMM.md`
+- Files
+  `mmm/app.py`, `mmm/src/utils.py`, `mmm/docs/10_BUILD_MMM.md`
+- Reason
+  Move the repo from isolated modules to a working end-to-end MVP path and keep the build checklist in sync with the work already done
+
 ### 005
 - Task
   MVP AI summary client
