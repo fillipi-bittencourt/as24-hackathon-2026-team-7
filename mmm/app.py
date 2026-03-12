@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -67,6 +68,8 @@ def init_state() -> None:
             "chains": 1,
         },
         "pymc_prior_signature": None,
+        "selected_visual_channels": [],
+        "show_baseline_visual": True,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -127,6 +130,10 @@ def format_cpl(value: float | None) -> str:
     return f"EUR {value:,.2f} per lead"
 
 
+def format_signed_number(value: float) -> str:
+    return f"{value:,.0f}"
+
+
 def pick_best_channel(cpl_map: dict[str, float]) -> tuple[str | None, float | None]:
     finite = {name: value for name, value in cpl_map.items() if not math.isinf(value)}
     if not finite:
@@ -141,6 +148,35 @@ def pick_worst_channel(cpl_map: dict[str, float]) -> tuple[str | None, float | N
         return None, None
     name, value = max(finite.items(), key=lambda item: item[1])
     return name, value
+
+
+def build_labeled_bar_chart(
+    df: pd.DataFrame,
+    category_col: str,
+    value_col: str,
+    label_col: str,
+    title: str,
+) -> alt.Chart:
+    max_value = float(df[value_col].max()) if not df.empty else 0.0
+    padded_max = max_value * 1.15 if max_value > 0 else 1.0
+    base = alt.Chart(df).encode(
+        x=alt.X(
+            f"{value_col}:Q",
+            title=None,
+            scale=alt.Scale(domain=[0, padded_max]),
+        ),
+        y=alt.Y(f"{category_col}:N", sort="-x", title=None),
+    )
+    bars = base.mark_bar().encode(
+        tooltip=[
+            alt.Tooltip(f"{category_col}:N", title="Item"),
+            alt.Tooltip(f"{value_col}:Q", title="Value", format=",.2f"),
+        ]
+    )
+    labels = base.mark_text(align="left", baseline="middle", dx=4).encode(
+        text=alt.Text(f"{label_col}:N")
+    )
+    return (bars + labels).properties(title=title, height=max(180, 36 * len(df)))
 
 
 def load_candidate_dataframe() -> pd.DataFrame | None:
@@ -645,8 +681,36 @@ def render_results_tab() -> None:
     )
     st.session_state["selected_model"] = selected_model
     result = st.session_state["model_results"][selected_model]
+    actual_total = float(st.session_state["y"].sum())
+    model_total = float(result.y_pred.sum())
+    media_total = sum(float(series.sum()) for series in result.contribution.values())
+    baseline_total = float(result.baseline.sum())
+    unexplained_total = actual_total - model_total
+    if math.isclose(unexplained_total, 0.0, abs_tol=0.5):
+        unexplained_total = 0.0
+    unexplained_share = (
+        (unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
+    )
+    if math.isclose(unexplained_share, 0.0, abs_tol=0.05):
+        unexplained_share = 0.0
+
+    default_visual_channels = st.session_state.get("selected_visual_channels") or result.channel_names
+    selected_visual_channels = st.multiselect(
+        "Variables shown in charts",
+        options=result.channel_names,
+        default=[channel for channel in default_visual_channels if channel in result.channel_names],
+        help="Choose which channels appear in the charts and breakdown tables.",
+    )
+    st.session_state["selected_visual_channels"] = selected_visual_channels or result.channel_names
+    show_baseline = st.checkbox(
+        "Show baseline and unexplained portion",
+        value=bool(st.session_state.get("show_baseline_visual", True)),
+        help="Include baseline and the unexplained gap in the visual summaries.",
+    )
+    st.session_state["show_baseline_visual"] = show_baseline
 
     st.subheader("Model comparison")
+    st.caption("Compare the fitted models first. Use this section to see whether the ranking and fit quality are broadly consistent across methods.")
     comparison_df = build_model_comparison_df()
     st.dataframe(comparison_df, width="stretch")
 
@@ -654,7 +718,7 @@ def render_results_tab() -> None:
         {
             name: {
                 channel: st.session_state["model_results"][name].coefficients.get(channel)
-                for channel in st.session_state["channel_cols"]
+                for channel in st.session_state["selected_visual_channels"]
             }
             for name in model_names
         }
@@ -665,7 +729,7 @@ def render_results_tab() -> None:
         {
             name: {
                 channel: st.session_state["model_results"][name].cpl.get(channel)
-                for channel in st.session_state["channel_cols"]
+                for channel in st.session_state["selected_visual_channels"]
             }
             for name in model_names
         }
@@ -673,25 +737,77 @@ def render_results_tab() -> None:
     st.dataframe(cpl_df, width="stretch")
     st.caption("All reported R², RMSE, and attribution are in-sample.")
 
-    total_contribution = sum(float(series.sum()) for series in result.contribution.values())
     best_name, best_value = pick_best_channel(result.cpl)
     fitted_at = st.session_state["model_results_meta"].get(selected_model, {}).get("fitted_at")
 
     st.subheader("What is happening?")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total media contribution", format_number(total_contribution))
+    st.caption("Use this section for the top-line picture. It compares total leads, the part linked to media, the part explained by baseline effects, and the remaining gap.")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric(
+        "Total leads",
+        format_number(actual_total),
+        help="All observed leads in the loaded dataset.",
+    )
     col2.metric(
+        "Media leads",
+        format_number(media_total),
+        help="Leads attributed to the selected media channels by the model.",
+    )
+    col3.metric(
+        "Baseline leads",
+        format_number(baseline_total),
+        help="Leads explained by the baseline part of the model, such as intercept and controls.",
+    )
+    col4.metric(
+        "Unexplained gap",
+        format_signed_number(unexplained_total),
+        f"{unexplained_share:.1f}%",
+        help="Difference between actual total leads and the modelled total. Smaller is better.",
+    )
+    col5, col6 = st.columns(2)
+    col5.metric(
         "Top channel by CPL",
         best_name or "N/A",
         format_cpl(best_value) if best_value is not None else None,
+        help="The channel with the lowest cost per lead in the selected model.",
     )
-    col3.metric("Model fit", f"R² {result.r_squared:.2f}", f"RMSE {result.rmse:,.0f}")
+    col6.metric(
+        "Model fit",
+        f"R² {result.r_squared:.2f}",
+        f"RMSE {result.rmse:,.0f}",
+        help="R² shows how much variation the model explains. RMSE shows the average prediction error in leads.",
+    )
+    summary_rows = [
+        {"Group": "Total leads", "Value": actual_total, "Label": format_number(actual_total)},
+        {"Group": "Media leads", "Value": media_total, "Label": format_number(media_total)},
+        {"Group": "Baseline leads", "Value": baseline_total, "Label": format_number(baseline_total)},
+    ]
+    if show_baseline:
+        summary_rows.append(
+            {
+                "Group": "Unexplained gap",
+                "Value": abs(unexplained_total),
+                "Label": format_number(abs(unexplained_total)),
+            }
+        )
+    summary_df = pd.DataFrame(summary_rows)
+    st.altair_chart(
+        build_labeled_bar_chart(
+            summary_df,
+            "Group",
+            "Value",
+            "Label",
+            "Lead comparison",
+        ),
+        use_container_width=True,
+    )
     if fitted_at:
         st.caption(f"Model fitted on: {fitted_at}")
 
     st.subheader("Why is it happening?")
+    st.caption("Use this section to explain channel efficiency. Focus on CPL, contribution, and how much each channel accounts for in the selected model.")
     why_rows: list[dict[str, Any]] = []
-    for channel in result.channel_names:
+    for channel in st.session_state["selected_visual_channels"]:
         contribution_total = float(result.contribution[channel].sum())
         row = {
             "Channel": channel,
@@ -715,12 +831,27 @@ def render_results_tab() -> None:
         if not math.isinf(value)
     }
     if cpl_chart:
+        ordered_series = pd.Series(cpl_chart).sort_values(ascending=True)
         ordered_chart = pd.DataFrame(
-            {"CPL": pd.Series(cpl_chart).sort_values(ascending=True)}
+            {
+                "Channel": ordered_series.index,
+                "CPL": ordered_series.values,
+                "Label": [format_cpl(value) for value in ordered_series.values],
+            }
         )
-        st.bar_chart(ordered_chart)
+        st.altair_chart(
+            build_labeled_bar_chart(
+                ordered_chart,
+                "Channel",
+                "CPL",
+                "Label",
+                "CPL by channel",
+            ),
+            use_container_width=True,
+        )
 
     st.subheader("What should leadership do next?")
+    st.caption("Use this as the action section. The recommendation is directional and based on current modelled efficiency, not a guaranteed forecast.")
     worst_name, worst_value = pick_worst_channel(result.cpl)
     reallocation_pct = 0
     if best_value and worst_value and worst_value > 0:
@@ -735,17 +866,24 @@ def render_results_tab() -> None:
     st.markdown("\n".join(recommendation_lines))
 
     with st.expander("Channel Insights", expanded=False):
+        st.caption("Use this section for deeper exploration. You can limit the view to selected channels and compare them against baseline over time.")
         insight_df = pd.DataFrame(
             {
                 channel: result.contribution[channel]
-                for channel in result.channel_names
+                for channel in st.session_state["selected_visual_channels"]
             }
         )
-        insight_df["baseline"] = result.baseline
+        if show_baseline:
+            insight_df["baseline"] = result.baseline
+            insight_df["unexplained_gap"] = np.clip(
+                st.session_state["y"] - result.y_pred,
+                a_min=0,
+                a_max=None,
+            )
         insight_df.index = st.session_state["df"][st.session_state["date_col"]]
         st.area_chart(insight_df)
         rows = []
-        for channel in result.channel_names:
+        for channel in st.session_state["selected_visual_channels"]:
             theta = st.session_state["adstock_params"].get(channel, 0.0)
             if theta <= 0:
                 carryover = "No carryover"
@@ -767,28 +905,36 @@ def render_results_tab() -> None:
         st.dataframe(pd.DataFrame(rows), width="stretch")
 
     with st.expander("Quick Insights", expanded=False):
+        st.caption("This section condenses the most useful summary points into a small set of operational metrics.")
         media_total = sum(float(result.contribution[ch].sum()) for ch in result.channel_names)
         spend_total = float(
             st.session_state["df"][st.session_state["channel_cols"]].sum().sum()
         )
         overall_cpl = spend_total / media_total if media_total > 0 else None
         quick_col1, quick_col2 = st.columns(2)
-        quick_col1.metric("Overall marketing CPL", format_cpl(overall_cpl))
+        quick_col1.metric(
+            "Overall marketing CPL",
+            format_cpl(overall_cpl),
+            help="Total spend divided by total media-attributed leads.",
+        )
         quick_col2.metric(
             "Best channel",
             best_name or "N/A",
             format_cpl(best_value) if best_value is not None else None,
+            help="The channel with the lowest cost per lead in the selected model.",
         )
         quick_col3, quick_col4 = st.columns(2)
         quick_col3.metric(
             "Worst channel",
             worst_name or "N/A",
             format_cpl(worst_value) if worst_value is not None else None,
+            help="The channel with the highest cost per lead in the selected model.",
         )
         quick_col4.metric(
             "Media vs baseline",
             f"{round((media_total / float(result.y_pred.sum())) * 100, 1)}%",
             f"Baseline {round(result.baseline_pct * 100, 1)}%",
+            help="Share of modelled leads attributed to media versus the baseline part of the model.",
         )
 
 

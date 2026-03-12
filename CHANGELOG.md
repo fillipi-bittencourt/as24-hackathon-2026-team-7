@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 013
+- Task
+  Results UX improvements
+- Change
+  Added clearer section descriptions, short metric help text, total leads versus media leads visibility, unexplained portion visibility, labeled bar charts, and variable controls for the visuals
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the results easier to read and easier to explain during analysis and demo use
+
 ### 012
 - Task
   Deck build guide
