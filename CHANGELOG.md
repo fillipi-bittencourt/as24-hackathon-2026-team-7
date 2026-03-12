@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 015
+- Task
+  Five model app wiring
+- Change
+  Exposed `Lasso` and `ElasticNet` in the app fit flow, passed through the needed regularization settings, and updated the build doc to reflect the complete five model set
+- Files
+  `mmm/app.py`, `mmm/docs/10_BUILD_MMM.md`, `CHANGELOG.md`
+- Reason
+  Make the full model comparison claim true in the app, not just in the documentation
+
 ### 014
 - Task
   Remaining frequentist models

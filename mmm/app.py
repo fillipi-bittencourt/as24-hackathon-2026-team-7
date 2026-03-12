@@ -13,6 +13,8 @@ import pandas as pd
 import streamlit as st
 
 from src.ai.client import build_payload, get_summary, load_credentials
+from src.models.elasticnet import ElasticNetModel
+from src.models.lasso import LassoModel
 from src.models.ols import OLSModel
 from src.models.pymc_model import PyMCModel
 from src.models.ridge import RidgeModel
@@ -23,6 +25,8 @@ from src.utils import convert_mmm_data, validate_mmm_data
 MODEL_BUILDERS = {
     "OLS": OLSModel,
     "Ridge": RidgeModel,
+    "Lasso": LassoModel,
+    "ElasticNet": ElasticNetModel,
     "PyMC": PyMCModel,
 }
 
@@ -597,14 +601,14 @@ def render_fit_tab() -> None:
         st.warning("Apply transforms in the Config tab first.")
         return
 
-    st.caption("Fit the models here. Start with OLS and Ridge for a quick baseline, then run PyMC when you want interval estimates.")
+    st.caption("Fit the models here. Start with OLS and Ridge for a quick baseline, then compare them with Lasso, ElasticNet, and PyMC.")
     available_models = list(MODEL_BUILDERS.keys())
     selected_models = st.multiselect(
         "Models to fit",
         options=available_models,
         default=["OLS"],
     )
-    st.info("Lasso and ElasticNet are still stretch items. PyMC is available from the Priors tab settings.")
+    st.info("PyMC uses the Priors tab settings. Lasso and ElasticNet use the regularization settings from Config.")
 
     fit_selected = st.button("Fit selected", type="primary")
     fit_all = st.button("Fit all")
@@ -631,6 +635,11 @@ def render_fit_tab() -> None:
                 }
                 if model_name == "Ridge":
                     kwargs["reg_alpha"] = st.session_state["reg_alpha"]
+                if model_name == "Lasso":
+                    kwargs["reg_alpha"] = st.session_state["reg_alpha"]
+                if model_name == "ElasticNet":
+                    kwargs["reg_alpha"] = st.session_state["reg_alpha"]
+                    kwargs["l1_ratio"] = st.session_state["l1_ratio"]
                 if model_name == "PyMC":
                     kwargs["prior_config"] = st.session_state["pymc_prior_config"]
                     kwargs["sampler_config"] = st.session_state["pymc_sampler_config"]
