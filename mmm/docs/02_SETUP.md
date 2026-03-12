@@ -52,13 +52,23 @@ python3 -m venv .venv
 
 ## Step 3 — Install dependencies
 
+Start with the MVP dependency set so the team can prove the app works before adding optional extras.
+
 ```bash
 cd as24-hackathon-2026-team-7/mmm
 .venv/bin/pip install --upgrade pip
+.venv/bin/pip install -r requirements-mvp.txt
+```
+
+MVP demo target: Streamlit, pandas, numpy, scipy, statsmodels, scikit-learn, matplotlib, and OpenAI.
+
+Only after the MVP flow works, install the optional full stack:
+
+```bash
 .venv/bin/pip install -r requirements.txt
 ```
 
-> PyMC installation takes ~2 minutes. This is normal. Do not interrupt.
+> PyMC installation takes time and is optional for the first usable demo. Do not let it block Data → Fit → Results → AI summary.
 
 If install fails midway, re-run the same command — pip is safe to retry.
 
@@ -75,10 +85,14 @@ rm -rf .venv
 ```bash
 cd as24-hackathon-2026-team-7/mmm
 .venv/bin/python --version
-.venv/bin/python -c "import streamlit, pandas, numpy, statsmodels, sklearn, pymc, arviz, openai, anthropic; print('All packages OK')"
+.venv/bin/python -c "import streamlit, pandas, numpy, statsmodels, sklearn, openai; print('MVP packages OK')"
 ```
 
-Both commands must succeed. If any package is missing, re-run Step 3.
+Optional full-stack check after stretch packages are installed:
+
+```bash
+.venv/bin/python -c "import pymc, arviz, anthropic; print('Optional packages OK')"
+```
 
 ---
 
@@ -88,7 +102,7 @@ Both commands must succeed. If any package is missing, re-run Step 3.
 cp as24-hackathon-2026-team-7/mmm/credentials.json.example as24-hackathon-2026-team-7/mmm/credentials.json
 ```
 
-Edit `mmm/credentials.json` and fill in at least one API key. Ensure `preferred_provider` matches the key you fill in (e.g. use `"openai"` when setting `openai_api_key`).
+Edit `mmm/credentials.json` and fill in at least one API key. For the MVP, use one provider only. Ensure `preferred_provider` matches the key you fill in (e.g. use `"openai"` when setting `openai_api_key`).
 
 ```json
 {
@@ -106,7 +120,7 @@ Edit `mmm/credentials.json` and fill in at least one API key. Ensure `preferred_
 
 ## Step 6 — Add data
 
-Place a CSV in `mmm/data/`. Required columns: `date`, `target`, at least one `*_spend` column.
+Start with `mmm/data/mmm_demo_sample.csv`. After the MVP app works with that file, replace it with business data if available. Required columns: `date`, `target`, at least one `*_spend` column.
 
 Schema reference: [04_DATA_MODEL.md](04_DATA_MODEL.md).
 
@@ -140,8 +154,8 @@ App opens at **http://localhost:8501**
 |---------|-------|-----|
 | `ModuleNotFoundError` on import | Running Python outside `.venv` | Activate `.venv` first: `source .venv/bin/activate` |
 | `streamlit: command not found` | `.venv` not activated | Run `source .venv/bin/activate` before `streamlit run app.py` |
-| PyMC install fails on macOS | Missing C compiler | `xcode-select --install`, then re-run `pip install -r requirements.txt` |
-| PyMC install fails (NumPy error) | NumPy version conflict | `.venv/bin/pip install "numpy<2.0"`, then retry requirements |
+| PyMC install fails on macOS | Missing C compiler | Skip PyMC for MVP, or run `xcode-select --install`, then re-run `pip install -r requirements.txt` later |
+| PyMC install fails (NumPy error) | NumPy version conflict | Skip PyMC for MVP, or run `.venv/bin/pip install "numpy<2.0"`, then retry the full requirements later |
 | `credentials.json not found` | File not copied | `cp credentials.json.example credentials.json` and fill in key |
 | AI tab key error | Wrong key or wrong provider | Check `preferred_provider` matches the key you filled in |
 | `src.utils not found` | Running from repo root | Must run `streamlit run app.py` from inside `mmm/` |
@@ -153,7 +167,8 @@ App opens at **http://localhost:8501**
 | File | Purpose |
 |------|---------|
 | `mmm/app.py` | Streamlit entry point (placeholder — built by LLM) |
-| `mmm/requirements.txt` | Python dependencies |
+| `mmm/requirements.txt` | Full dependency set including optional extras |
+| `mmm/requirements-mvp.txt` | Fast MVP dependency set |
 | `mmm/credentials.json` | API keys (gitignored — copy from credentials.json.example) |
 | `mmm/credentials.json.example` | Credentials schema reference |
 | `mmm/.python-version` | Python 3.10 pin (for pyenv) |

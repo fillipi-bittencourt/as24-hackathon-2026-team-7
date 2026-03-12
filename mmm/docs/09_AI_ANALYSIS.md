@@ -1,13 +1,13 @@
 # AI Analysis
 
 Use OpenAI or Claude to analyze MMM model results and generate executive-ready insights.
-For hackathon delivery, AI is optional until MVP (Data, Config, Fit, Results) is stable.
+For hackathon delivery, AI is part of the MVP as a single-model executive summary. Advanced AI features stay optional until the core app is stable.
 
 ---
 
 ## delivery mode
 
-- day 1 mvp: optional AI with single provider and single-model summary
+- day 1 mvp: required AI with single provider and single-model summary
 - day 2 stretch: compare-all mode, multi-provider fallback, and Q&A history UX
 - if AI fails, core app behavior must remain usable
 
@@ -32,7 +32,7 @@ API keys are loaded from `mmm/credentials.json` (gitignored). See `credentials.j
 2. Environment variables: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
 3. Sidebar text input in the app (manual override / emergency fallback)
 
-The app must handle each case gracefully. If none of the three are available, show a clear message in the AI tab: `"Add credentials.json or set an API key in the sidebar to enable AI analysis."`
+The app must handle each case gracefully. For the MVP, configure one provider only. If none of the three are available, show a clear message in the AI tab: `"Add credentials.json or set an API key in the sidebar to enable AI analysis."`
 
 **credentials.json partial fills:** If the file exists but `preferred_provider` is missing, auto-detect: use `"openai"` if `openai_api_key` is present, else use `"anthropic"`. If neither key is present, fall through to env vars. Never raise a KeyError — catch all parsing exceptions and fall through to the next priority.
 

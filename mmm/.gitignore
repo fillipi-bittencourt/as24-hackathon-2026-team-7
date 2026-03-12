@@ -29,6 +29,7 @@ build/
 data/*.csv
 data/*.parquet
 data/*.xlsx
+!data/mmm_demo_sample.csv
 
 # macOS
 .DS_Store

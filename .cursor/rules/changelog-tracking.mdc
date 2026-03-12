@@ -1,0 +1,18 @@
+---
+description: Track significant work in the repo changelog
+alwaysApply: true
+---
+
+# Changelog Tracking
+
+- Always maintain `CHANGELOG.md` at the repo root
+- After finishing each task item, append a new entry to `CHANGELOG.md`
+- Track significant changes only, not tiny scratch edits
+- Keep entries in sequence order using the next available number
+- For each entry include
+  - task item or task name
+  - what changed
+  - key files touched
+  - short note on why the change was made
+- Update the changelog in the same task where the work is completed
+- Do not leave a completed significant task undocumented

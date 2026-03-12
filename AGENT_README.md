@@ -86,7 +86,7 @@ When the user asks you to:
 
 | User request | Agent action | Read |
 |--------------|--------------|------|
-| Scaffold app, create data product | Build app in `mmm/` per [mmm/docs/10_BUILD_MMM.md](mmm/docs/10_BUILD_MMM.md); implement three decision views and model comparison | **Default:** AGENT_README + 10_BUILD_MMM. **Add only as needed:** 04_DATA_MODEL, 06_MODELS, GUIDELINES, DECISIONS_FRAMEWORK |
+| Scaffold app, create data product | Build app in `mmm/` per [mmm/docs/10_BUILD_MMM.md](mmm/docs/10_BUILD_MMM.md); implement three decision views, model comparison, and AI summary | **Default:** AGENT_README + 10_BUILD_MMM. **Required when touching models:** 06_MODELS. **Required when touching AI:** 09_AI_ANALYSIS. **Add only as needed:** 04_DATA_MODEL, GUIDELINES, DECISIONS_FRAMEWORK |
 | Set up / fix the environment | Follow mmm/docs/02_SETUP.md step by step | **mmm/docs/02_SETUP.md** |
 | Prepare or load business data | Place CSV in `mmm/data/`; validate schema against mmm/docs/04_DATA_MODEL.md | mmm/docs/04_DATA_MODEL.md |
 | Fix bug, debug | Apply minimal fix; verify logic; do not refactor beyond scope | — |
@@ -112,7 +112,7 @@ When the user asks you to:
 
 | When | Load (necessary) | Load (optional) |
 |------|-------------------|------------------|
-| Build the app | **AGENT_README + mmm/docs/10_BUILD_MMM.md** | 04_DATA_MODEL, 06_MODELS for full fidelity |
+| Build the app | **AGENT_README + mmm/docs/10_BUILD_MMM.md** | 04_DATA_MODEL. Load 06_MODELS when defining ModelResult. Load 09_AI_ANALYSIS when building AI helpers |
 | Set up / fix environment | **mmm/docs/02_SETUP.md** | — |
 | Understand project / route request | **This file (AGENT_README)** | GUIDELINES, DECISIONS_FRAMEWORK |
 | Validate scope or three decisions | — | docs/DECISIONS_FRAMEWORK.md, docs/GUIDELINES.md |

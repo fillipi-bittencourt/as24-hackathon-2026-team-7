@@ -20,8 +20,8 @@ If an optional spec file is unavailable, continue with the minimal schema and be
 goal: ship a reliable demo fast. prioritize usability and speed over completeness.
 
 scope for mvp:
-- required: data load and validation, transform apply, fit OLS and Ridge, results comparison table, and the 3 decision sections
-- optional day 2 stretch: Lasso, ElasticNet, PyMC, AI Q&A, channel deep-dive charts, extra exports
+- required: data load and validation, transform apply, fit OLS and Ridge, results comparison table, the 3 decision sections, and an AI single-model executive summary
+- optional day 2 stretch: Lasso, ElasticNet, PyMC, AI Q&A, channel deep-dive charts, extra exports, compare-all AI
 
 runtime guardrails:
 - app startup under 10 seconds on sample data
@@ -36,6 +36,7 @@ acceptance criteria:
 - demo flow works end-to-end: load data -> apply transforms -> fit model -> view results
 - validation errors are clear for missing or invalid date, target, or channels
 - results tab always shows fitted model metrics and coefficients without crashes
+- ai tab can generate a single-model executive summary without breaking the core app when credentials are missing or invalid
 
 ---
 
@@ -81,8 +82,8 @@ phase B models:
 - optional `mmm/src/models/pymc_model.py`
 
 phase C ai:
-- optional `mmm/src/ai/client.py`
-- optional AI tab enhancements
+- required `mmm/src/ai/client.py` for the MVP single-model summary
+- optional AI tab enhancements such as compare-all and Q&A
 
 After each phase, run checks before continuing.
 Start with phase A.
@@ -90,7 +91,7 @@ Start with phase A.
 
 ---
 
-Build the complete **interactive** Streamlit MMM app. Data will be provided later via CSV in `mmm/data/` or upload. The app must load, validate, transform, fit models, **allow comparing multiple models**, and show results for three decisions; optionally call OpenAI/Claude.
+Build the complete **interactive** Streamlit MMM app. Data will be provided later via CSV in `mmm/data/` or upload. The app must load, validate, transform, fit models, **allow comparing multiple models**, show results for three decisions, and include an AI single-model executive summary with one provider.
 
 **Run command:** `cd mmm && source .venv/bin/activate && streamlit run app.py`
 
@@ -192,11 +193,11 @@ Store results per model in `session_state["model_results"]` keyed by model name 
 - [ ] **2.2** Same file: `hill_saturation(x, alpha, k)` = `x^alpha / (k^alpha + x^alpha)`; safe for zeros (if k=0 return zeros). Implement also `log_saturation(x)` = `np.log1p(x)` for per-channel saturation type `"log"`.
 - [ ] **2.3** Same file: `transform_media(...)`. **Input types:** `df` must have date_col as datetime and channel/control columns as float64. **Output types:** Return a 2D numpy array with dtype **float64**, shape `(n_rows, n_channels + n_controls)`. Internally use float64 for all adstock/saturation math so the returned array is float64.
   - `adstock_type`: `dict[str, str]` — per channel, `"geometric"` or `"none"`.
-  - `saturation_type`: `dict[str, str]` — per channel, `"hill"`, `"log"`, or `"none"`.
+  - `saturation_type`: `dict[str, str]` — per channel, `"log"`, `"hill"`, or `"none"`.
   - For each channel: (1) if `adstock_type[ch] == "geometric"` apply `geometric_adstock(x, adstock_params[ch])`, else use raw column; (2) if `saturation_type[ch] == "hill"` apply `hill_saturation(x, saturation_params[ch]["alpha"], saturation_params[ch]["k"])`, elif `"log"` apply `log_saturation(x)`, else pass through. If `control_cols` is provided, append those raw columns to the right. Return 2D numpy array shape `(n_rows, n_channels + n_controls)`, **dtype float64**. Column order: channels first (matching `channel_cols`), then controls.
 - [ ] **2.4** Config tab:
-  - **Transform type (per channel)** — for each channel: `st.selectbox("Adstock", ["Geometric", "None"], key=f"adstock_type_{ch}")` and `st.selectbox("Saturation", ["Hill", "Log", "None"], key=f"saturation_type_{ch}")`. Store in `session_state["adstock_type"]` and `session_state["saturation_type"]` as `dict[str, str]` with lowercase values (`"geometric"`, `"none"`, `"hill"`, `"log"`, `"none"`). Defaults: every channel `"geometric"` and `"hill"` — when building the Config UI, if a channel is not yet in these dicts (e.g. after first load), set that channel to `"geometric"` and `"hill"`.
-  - **Transform params** — for each channel in `channel_cols`: show theta slider only if `adstock_type[ch] == "geometric"` (0.1–0.9, step 0.05). Show alpha and k inputs only if `saturation_type[ch] == "hill"`; k default = `max(df[ch].median(), df[ch].max() * 0.1, 1.0)`. **Rationale:** In the UI or a tooltip, add a one-line note: "Default k = max(median, 10% of max, 1) places half-saturation near typical spend levels; adjust if your spend range is very different." For theta: "Typical range 0.1–0.9: higher = longer carryover. Use prior campaigns or category benchmarks if available." For "log" or "none" saturation, alpha/k are not used (store a placeholder in saturation_params for hill-only use in Results, or store `None` and skip in channel insights for non-hill).
+  - **Transform type (per channel)** — for each channel: `st.selectbox("Adstock", ["Geometric", "None"], key=f"adstock_type_{ch}")` and `st.selectbox("Saturation", ["Log", "Hill", "None"], key=f"saturation_type_{ch}")`. Store in `session_state["adstock_type"]` and `session_state["saturation_type"]` as `dict[str, str]` with lowercase values (`"geometric"`, `"none"`, `"log"`, `"hill"`, `"none"`). Defaults: every channel `"geometric"` and `"log"` — when building the Config UI, if a channel is not yet in these dicts (e.g. after first load), set that channel to `"geometric"` and `"log"`.
+  - **Transform params** — for each channel in `channel_cols`: show theta slider only if `adstock_type[ch] == "geometric"` (0.1–0.9, step 0.05). Show alpha and k inputs only if `saturation_type[ch] == "hill"`; k default = `max(df[ch].median(), df[ch].max() * 0.1, 1.0)`. **Rationale:** In the UI or a tooltip, add a one-line note: "Recommended starting point for spend is Geometric adstock + Log saturation." Add a second note: "Default k = max(median, 10% of max, 1) places half-saturation near typical spend levels; adjust if your spend range is very different." For theta: "Typical range 0.1–0.9: higher = longer carryover. Use prior campaigns or category benchmarks if available." For "log" or "none" saturation, alpha/k are not used (store a placeholder in saturation_params for hill-only use in Results, or store `None` and skip in channel insights for non-hill).
   - **Bulk defaults (optional):** Add optional buttons or controls: "Set all channels to same adstock type", "Set all to same saturation type", "Set all theta to X" so users with many channels can apply one value without repetitive clicking.
   - **Regularization params** — `st.number_input` for Ridge/Lasso alpha (default 1.0), ElasticNet l1_ratio (default 0.5); store as `session_state["reg_alpha"]`, `session_state["l1_ratio"]`; these are used in Step 3.4
   - Button **"Apply transforms"**: call `transform_media(df, channel_cols, adstock_params, saturation_params, adstock_type=session_state["adstock_type"], saturation_type=session_state["saturation_type"], control_cols=control_cols)`, store:
@@ -266,7 +267,7 @@ Store results per model in `session_state["model_results"]` keyed by model name 
   - Compute cpl, contribution, contribution_pct, baseline using the formula in Step 3.2 (with zero-division guards and clipping). When `attr_leads <= 0` (negative contribution), set `cpl[ch] = float("inf")` and in the UI show "—" or "N/A" for that channel's CPL.
   - `r_squared = result.rsquared`, `rmse = np.sqrt(np.mean(result.resid**2))`. Return ModelResult.
 - [ ] **3.4** Create `mmm/src/models/ridge.py`, `lasso.py`, `elasticnet.py` with sklearn. **Reproducibility:** Use a fixed `random_state` (e.g. `random_state=42`) in the model constructor where supported so the same data and config produce the same results. Accept `alpha` (and `l1_ratio` for ElasticNet) from kwargs — passed from `session_state["reg_alpha"]` and `session_state["l1_ratio"]`. sklearn does not add a constant automatically — use `fit_intercept=True` (default). After fit: `intercept = model.intercept_`. **Coefficient order:** `model.coef_` has length = n_columns(X); first `n_channels` are channel coefficients, rest are control coefficients. So `coefficients = { ch: model.coef_[i] for i, ch in enumerate(channel_names) }`. Do not scale X or y; alpha is on the raw scale. Compute cpl, contribution, contribution_pct, baseline with the same formula as OLS. For r_squared use `model.score(X_transformed, y)` (same X and y as fit); for rmse use `np.sqrt(np.mean((y - model.predict(X_transformed))**2))`. For negative contribution, set cpl[ch] to inf and display as "—" or "N/A" in the UI.
-- [ ] **3.5** Fit tab: **Interactive.** Show a warning and return early if `not session_state.get("transforms_applied")`: `"Apply transforms in the Config tab first."` Model selector (multiselect) for OLS, Ridge, Lasso, ElasticNet, PyMC. Buttons: "Fit selected" and "Fit all".
+- [ ] **3.5** Fit tab: **Interactive.** Show a warning and return early if `not session_state.get("transforms_applied")`: `"Apply transforms in the Config tab first."` MVP model selector shows `OLS` and `Ridge` first. Stretch models (`Lasso`, `ElasticNet`, `PyMC`) should only appear after their files exist, or be clearly labeled optional. Buttons: "Fit selected" and "Fit all".
 
   **Run models in series:** When the user clicks "Fit selected" or "Fit all", run the selected models **in series** (one after the other, sequentially). Do not run fits in parallel. Use a fixed order: e.g. for "Fit all" run OLS, then Ridge, then Lasso, then ElasticNet, then PyMC (or the order of the multiselect for "Fit selected"). For each model in turn: show `st.spinner("Fitting [name]...")`, read `X_transformed` and `y` from session_state (both float64), build `raw_spend = {ch: df[ch].values for ch in channel_cols}`, call `model.fit(X_transformed, y, raw_spend=raw_spend, **reg_params)`, store result in `session_state["model_results"][model_name]`, set `model_name` on the ModelResult to the same key, show status ("✓ OLS: R² = 0.72, RMSE = 12,450"), then proceed to the next model.   **Reproducibility:** When storing each result, also store a **model fitted timestamp**: e.g. `session_state["model_fitted_at"] = datetime.now().isoformat()` (single timestamp for last fit) or per-model `session_state["model_results_meta"][model_name]["fitted_at"] = ...`. Display "Model fitted on: &lt;date/time&gt;" (or "Data as of: &lt;max date in df&gt;") in the Results tab so reports are auditable. Results tab is enabled when `session_state.get("model_results")` is non-empty.
 
@@ -315,7 +316,7 @@ Store results per model in `session_state["model_results"]` keyed by model name 
   - **Holdout note:** Show a short note: "All reported R², RMSE, and attribution are in-sample. For out-of-sample validation (e.g. time-based holdout), use a separate workflow or future enhancement."
 - [ ] **5.4** Section **"What is happening?"** (for selected model): three `st.metric` cards — Total media contribution (attributed leads, formatted), **Top channel by CPL** (name + €X per lead — **lowest** CPL is best), Model fit (R² = X, RMSE = Y). Optionally show the **model fitted timestamp** (or "Data as of: &lt;max date&gt;") here or above the comparison tables.
 - [ ] **5.5** Section **"Why is it happening?"** (for selected model): `st.dataframe` — base columns: Channel, Coefficient, **CPL (€ per lead)**, Contribution (leads), Share (%). **CPL display:** When formatting CPL for display, if value is `math.isinf(cpl)` or very large, show `"—"` or `"N/A"` instead of the raw number. Optionally add **Share of actual**: `sum(contribution[ch]) / sum(y_actual)` so users can compare model attribution to the real total. Only add Coeff CI (lower–upper) and **CPL CI** columns if `hasattr(result, "coefficient_lower")` — i.e. only when the selected model is PyMC. For non-PyMC models these fields do not exist and must not be shown. Below the table, use `st.bar_chart` for **CPL by channel**: create a dataframe with channel names as index and CPL as values, **sort ascending** (best/lowest CPL first).
-- [ ] **5.6** Section **"What should leadership do next?"** (for selected model): three bullet points — (1) `"Invest more in [lowest CPL channel] — currently €X per lead"`, (2) `"Reduce spend on [highest CPL channel] — €X per lead"`, (3) `"Reallocate [N]% of [highest CPL channel] budget to [lowest CPL channel] — estimated improvement in cost per lead"`. Compute the reallocation % as `min(50, round((cpl_worst - cpl_best) / cpl_worst * 100))` (relative CPL improvement if shifting spend from worst to best).
+- [ ] **5.6** Section **"What should leadership do next?"** (for selected model): three bullet points — (1) `"Invest more in [lowest CPL channel] — currently €X per lead"`, (2) `"Reduce spend on [highest CPL channel] — €X per lead"`, (3) `"Reallocate [N]% of [highest CPL channel] budget to [lowest CPL channel] — directional heuristic based on current modelled CPL"`. Compute the reallocation % as `min(50, round((cpl_worst - cpl_best) / cpl_worst * 100))` (relative CPL improvement if shifting spend from worst to best). Add a short note that this is a directional recommendation, not a forecast.
 
 - [ ] **Check (Step 5):** With at least one model fitted, open Results tab.
   - DoD:
@@ -364,7 +365,7 @@ If a value can't be computed (e.g. spend data missing), show `"N/A"` in the card
 
 ---
 
-## Step 6 — AI (day 2 stretch after stable MVP)
+## Step 6 — AI summary (required for MVP)
 
 `mmm/src/ai/__init__.py` already exists (placeholder). Create `mmm/src/ai/client.py`.
 
@@ -475,7 +476,7 @@ Implement as:
       else:
           # ... all AI content here
   ```
-- [ ] **7.4** Imports at the top of app.py: `from src.utils import validate_mmm_data`, `from src.transforms import transform_media`, `from src.models.ols import OLSModel`, `from src.models.ridge import RidgeModel`, `from src.models.lasso import LassoModel`, `from src.models.elasticnet import ElasticNetModel`, `from src.models.pymc_model import PyMCModel`, `from src.ai.client import load_credentials, build_payload, build_prompt, get_summary`. Run from `mmm/` so relative imports resolve.
+- [ ] **7.4** Imports at the top of app.py for MVP: `from src.utils import validate_mmm_data`, `from src.transforms import transform_media`, `from src.models.ols import OLSModel`, `from src.models.ridge import RidgeModel`, `from src.ai.client import load_credentials, build_payload, build_prompt, get_summary`. Add `LassoModel`, `ElasticNetModel`, and `PyMCModel` imports only when those files are implemented, or load them lazily behind feature checks. Run from `mmm/` so relative imports resolve.
 
 - [ ] **Check (Step 7):** Run `streamlit run app.py` from `mmm/`.
   - DoD:

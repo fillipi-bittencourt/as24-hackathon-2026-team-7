@@ -52,7 +52,9 @@ mmm/data/*.xlsx
 *.swp
 *.swo
 *~
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/*.mdc
 
 # Jupyter
 .ipynb_checkpoints/

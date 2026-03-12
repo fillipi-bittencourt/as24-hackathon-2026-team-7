@@ -8,7 +8,7 @@
 | Config | Transform params + regularization hyperparams | Data valid |
 | Fit | Select models, run fit, view fit status | Transforms applied |
 | Results | Model comparison, three decisions, channel insights, quick insights | ≥1 model fitted |
-| AI | Executive summary + Business Q&A | ≥1 model fitted |
+| AI | Executive summary for the selected model; stretch Q&A later | ≥1 model fitted |
 
 Tabs are always visible. Gating is done by showing a message inside the tab block using `if/else` — not by hiding tabs and not by calling `st.stop()`.
 
@@ -17,10 +17,10 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 ## User Journey
 
 1. **Data** — Upload CSV or select from `data/`; select date_col, target_col, **channels to include** (multiselect — add/remove channels as needed); validate; preview. Channel selection can be edited after load (deselect to remove a channel); changing it re-validates and resets transforms and fits.
-2. **Config** — Per-channel: select **adstock type** (Geometric / None) and **saturation type** (Hill / Log / None); set theta (if geometric), alpha/k (if hill); set regularization alpha and l1_ratio; click "Apply transforms"
-3. **Fit** — Select models (multiselect: OLS / Ridge / Lasso / ElasticNet / PyMC); click "Fit selected" or "Fit all"; spinner + R² shown per model
+2. **Config** — Per-channel: select **adstock type** (Geometric / None) and **saturation type** (Log / Hill / None); set theta (if geometric), alpha/k (if hill); set regularization alpha and l1_ratio; click "Apply transforms". Recommended defaults: **Geometric + Log**
+3. **Fit** — Select models (MVP: OLS / Ridge; stretch: Lasso / ElasticNet / PyMC); click "Fit selected" or "Fit all"; spinner + R² shown per model
 4. **Results** — Model selector at top; comparison tables; three decision sections; expandable Channel Insights; expandable Quick Insights
-5. **AI** — Provider setup; executive summary (single or compare-all); Business Q&A with templates + history
+5. **AI** — Provider setup; executive summary for the selected model. Compare-all and Business Q&A are stretch features
 
 ---
 
@@ -43,7 +43,9 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 | `reg_alpha` | `float` | Config tab | Fit (Ridge/Lasso) |
 | `l1_ratio` | `float` | Config tab | Fit (ElasticNet) |
 | `transforms_applied` | `bool` | Config tab | Fit gate |
+| `transform_fingerprint` | `str` | Config tab | Config, Fit, Results |
 | `model_results` | `dict[str, ModelResult]` | Fit tab | Results, AI |
+| `model_results_meta` | `dict[str, dict]` | Fit tab | Results |
 | `selected_model` | `str` (model name key) | Results tab | AI tab |
 | `qa_history` | `list[dict]` — each: `{question, answer, model, timestamp}` | AI tab | AI tab |
 
@@ -55,18 +57,22 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 |-------------|--------|
 | File picker | Shows CSV files from `mmm/data/`; if empty shows "No files yet — use uploader" |
 | Column selectors | date_col (selectbox), target_col (selectbox), **channel_cols** (multiselect — select which channels to include; **deselect to remove**; ≥1 required), **control_cols** (multiselect, optional). After load, user can change channel/control selection without re-uploading; app re-validates and resets transforms + model results |
-| Transform sliders | Per channel: **Adstock type** (Geometric / None), **Saturation type** (Hill / Log / None); then theta slider (if geometric), alpha/k inputs (if hill); re-applying overwrites previous |
+| Transform sliders | Per channel: **Adstock type** (Geometric / None), **Saturation type** (Log / Hill / None); then theta slider (if geometric), alpha/k inputs (if hill); recommended defaults are Geometric + Log |
 | Reg params | Alpha input for Ridge/Lasso; alpha + l1_ratio for ElasticNet; stored in session_state |
-| Apply transforms | Validates inputs, runs transform_media, sets transforms_applied = True |
-| Model multiselect | OLS, Ridge, Lasso, ElasticNet, PyMC; can select any combination |
+| Apply transforms | Validates inputs, runs transform_media, sets transforms_applied = True, stores `transform_fingerprint`, and clears stale fits when transform-defining settings change |
+| Model multiselect | MVP: OLS and Ridge. Stretch models can be added later |
 | Fit buttons | "Fit selected" + "Fit all"; spinner per model; R² shown after each |
 | Model selector (Results) | Selectbox — switches all sections; stored as selected_model in session_state |
 | Comparison tables | Always show all fitted models; model selector only affects detail sections below |
 | Channel Insights | st.expander collapsed by default — opens on demand |
 | Quick Insights | st.expander collapsed by default — compact summary, open on demand |
 | AI summary | "Generate summary" button — triggers LLM call using selected_model |
-| AI Q&A templates | 7 pre-built questions in selectbox; user can edit in text_area |
-| Q&A history | Rendered before input in a container; newest entry at bottom |
+| AI Q&A templates | Stretch feature only |
+| Q&A history | Stretch feature only |
+
+Hard rule:
+- If channel/control selection or transform settings change, clear `model_results` and `selected_model`
+- If only regularization changes, keep results visible but require re-fit
 
 ---
 
@@ -114,20 +120,9 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 [Sidebar: API key override input if no credentials.json]
 
 ─── Executive Summary ──────────────────────────────────
-  Radio: [Single model (uses selected_model)] [Compare all]
+  Radio: [Single model (uses selected_model)]
   [Generate summary] button
   → LLM response rendered with st.markdown
-
-─── Business Q&A ───────────────────────────────────────
-  st.container (fixed height) — Q&A history:
-    for each (question, answer, model) in qa_history:
-      st.markdown("**Q:** question")
-      st.markdown("A: answer")
-      st.caption("Model: model_name")
-  ─────────────────────────
-  st.selectbox: question templates (7 options)
-  st.text_area: question text (pre-filled from template; user can edit)
-  [Ask] button → call get_summary → append to qa_history → rerender
 ```
 
 ---

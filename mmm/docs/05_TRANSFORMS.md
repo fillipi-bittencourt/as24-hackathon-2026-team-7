@@ -12,12 +12,12 @@ For each channel (variable), the user selects:
 
 | Choice | Adstock type | Saturation type |
 |--------|---------------|-----------------|
-| Options | **Geometric** \| **None** | **Hill** \| **Log** \| **None** |
-| Default | Geometric | Hill |
+| Options | **Geometric** \| **None** | **Log** \| **Hill** \| **None** |
+| Default | Geometric | Log |
 | None | No carryover; raw series passed through | No saturation; use adstock output (or raw) as regression input |
 
 - **Adstock type:** `"geometric"` — apply geometric adstock with that channel’s θ; `"none"` — no adstock, use raw spend.
-- **Saturation type:** `"hill"` — apply Hill with that channel’s α and k; `"log"` — apply `log(1 + x)` (no α/k); `"none"` — no saturation.
+- **Saturation type:** `"log"` — apply `log(1 + x)` (no α/k); `"hill"` — apply Hill with that channel’s α and k; `"none"` — no saturation.
 
 Application is still **adstock first, then saturation** per channel. Controls are never transformed. The regression is fit on the **transformed** channel series (and raw controls); coefficients are therefore in **leads per unit of transformed input**. CPL = raw spend / attributed leads stays in € per lead.
 
@@ -61,7 +61,7 @@ f(x) = x^α / (k^α + x^α)
 f(x) = log(1 + x)
 ```
 
-Simpler; no extra params. Often used as baseline.
+Simpler; no extra params. Often used as the first spend transformation to try.
 
 ---
 

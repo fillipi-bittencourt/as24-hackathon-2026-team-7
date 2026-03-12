@@ -1,5 +1,18 @@
 # Data directory
 
-Place your MMM CSV here. Required columns: `date`, `target` (leads), and at least one `*_spend` column. See `docs/04_DATA_MODEL.md`.
+Start with the committed demo file `mmm_demo_sample.csv` so the team can validate the happy path before switching to business data.
 
-**Document quirks here** (e.g. column renames, date format, units) so the app owner and storyteller have context.
+Required columns:
+
+- `date`
+- `target` (leads)
+- at least one `*_spend` column
+
+Use the sample file first, then replace it with business data when the app flow is already working.
+
+Document quirks here when you switch to business data:
+
+- column renames
+- date format issues
+- units or currency notes
+- channels excluded from the model

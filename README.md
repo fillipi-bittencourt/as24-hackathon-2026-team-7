@@ -42,14 +42,37 @@ as24-hackathon-2026-team-7/
 │   ├── AI_COPILOT_GUIDE.md
 │   └── DEMO_PREP.md
 └── mmm/                   # THE data product — everything lives here
-    ├── app.py             # Streamlit entry point
+    ├── app.py             # Streamlit entry point (placeholder until the app is built)
     ├── requirements.txt
+    ├── requirements-mvp.txt
     ├── data/              # Place business data (CSV) here
     ├── src/               # App source code (models, transforms, AI)
     └── docs/              # MMM design docs + 10_BUILD_MMM.md
 ```
 
-The **data product** is the **MMM app** in [mmm/](mmm/). Data goes in `mmm/data/`. Run with `cd mmm && source .venv/bin/activate && streamlit run app.py`.
+The **data product** is the **MMM app** in [mmm/](mmm/). Right now this repo contains the full specification, setup docs, and demo assets. The app itself still needs to be built from `mmm/docs/10_BUILD_MMM.md`.
+
+---
+
+## Current Status
+
+- **Current repo state:** specification-first, not runnable out of the box yet
+- **Fastest path to a usable demo:** open Cursor in `mmm/`, build the MVP from `mmm/docs/10_BUILD_MMM.md`, then use the included sample file `mmm/data/mmm_demo_sample.csv`
+- **Required demo scope:** Data, Config, Fit, Results, and an AI executive summary
+- **Stretch only:** Lasso, ElasticNet, PyMC, AI Q&A, advanced channel deep dives
+
+Until the app is built, `streamlit run app.py` will only launch a placeholder.
+
+---
+
+## Fast Demo Path
+
+1. Create the environment from `mmm/requirements-mvp.txt`
+2. Build the app from `mmm/docs/10_BUILD_MMM.md`
+3. Use `mmm/data/mmm_demo_sample.csv` for the first successful run
+4. Fit `OLS`, then optionally `Ridge`
+5. Use the Results tab for the three decision sections
+6. Use the AI tab to generate a single-model executive summary
 
 ---
 
