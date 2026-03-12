@@ -181,7 +181,7 @@ def default_channel_selection(columns: list[str], date_col: str | None, target_c
 
 
 def render_data_tab() -> None:
-    st.caption("Load your MMM CSV and confirm the columns before modeling.")
+    st.caption("Start here. Load a CSV, confirm the date, target, and spend columns, then validate the dataset before moving on.")
     raw_df = load_candidate_dataframe()
     if raw_df is None:
         return
@@ -302,7 +302,7 @@ def render_config_tab() -> None:
         st.warning("Load and validate data in the Data tab first.")
         return
 
-    st.caption("Use the recommended defaults first. Geometric adstock plus Log saturation is the default path.")
+    st.caption("Set the media transforms here. A safe starting point is Geometric adstock plus Log saturation for every channel.")
     df = st.session_state["df"]
     channel_cols = st.session_state["channel_cols"]
     control_cols = st.session_state["control_cols"]
@@ -444,7 +444,7 @@ def render_priors_tab() -> None:
         st.warning("Load and validate data in the Data tab first.")
         return
 
-    st.caption("Choose the PyMC priors here before fitting the Bayesian model.")
+    st.caption("Set the Bayesian assumptions here before fitting PyMC. If you are unsure, keep the defaults and fit once before tuning.")
     current_prior = st.session_state["pymc_prior_config"]
     current_sampler = st.session_state["pymc_sampler_config"]
 
@@ -561,7 +561,7 @@ def render_fit_tab() -> None:
         st.warning("Apply transforms in the Config tab first.")
         return
 
-    st.caption("Fit the core models first. PyMC is available when you want the Bayesian path.")
+    st.caption("Fit the models here. Start with OLS and Ridge for a quick baseline, then run PyMC when you want interval estimates.")
     available_models = list(MODEL_BUILDERS.keys())
     selected_models = st.multiselect(
         "Models to fit",
@@ -633,6 +633,8 @@ def render_results_tab() -> None:
     if not st.session_state.get("model_results"):
         st.info("Fit at least one model in the Fit tab to see results.")
         return
+
+    st.caption("Read the outputs in order. Start with the model comparison, then use the three sections below to answer what is happening, why, and what to do next.")
 
     model_names = list(st.session_state["model_results"].keys())
     current_model = st.session_state.get("selected_model") or model_names[0]
@@ -826,7 +828,7 @@ def render_ai_tab() -> None:
         model = None
         st.warning(str(exc))
 
-    st.caption("Generate a single-model executive summary from the current results.")
+    st.caption("Turn the current model output into a short executive summary. This tab should support the story, not replace the Results tab.")
     if st.button("Generate summary", type="primary"):
         if not api_key or not model:
             st.error("Add credentials.json or set an API key in the sidebar to enable AI analysis.")

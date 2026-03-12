@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 011
+- Task
+  Better tab guidance
+- Change
+  Improved the user-facing explanations at the top of the Data, Config, Priors, Fit, Results, and AI tabs
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the app easier to follow during a live demo and reduce ambiguity for first-time users
+
 ### 010
 - Task
   PyMC verification and environment fix
