@@ -1,0 +1,38 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.mypy_cache/
+.pytest_cache/
+
+# Secrets
+.env
+credentials.json
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data files (business data must not be committed; .gitkeep stays)
+data/*.csv
+data/*.parquet
+data/*.xlsx
+
+# macOS
+.DS_Store
+._*
+
+# Logs
+*.log

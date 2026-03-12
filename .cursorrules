@@ -1,0 +1,10 @@
+# Hackathon Project — Agent Instructions
+
+When assisting with this project, read AGENT_README.md first. It contains:
+- Project metadata and constraints
+- Task routing (what to do for each type of request)
+- References to docs/GUIDELINES.md, docs/DECISIONS_FRAMEWORK.md, and other docs
+
+When the user asks to **build the MMM app** or **implement the data product**, read [mmm/docs/10_BUILD_MMM.md](mmm/docs/10_BUILD_MMM.md) and follow its build order: one task item at a time, mark [V] when each is done (Steps 1–8). **Load only 10_BUILD_MMM.md** — do not load other docs unless the user asks for full context.
+
+All data product work must align to the three executive questions in docs/DECISIONS_FRAMEWORK.md. No traditional BI tools (QuickSight, Tableau, Power BI, Looker, Excel dashboards).

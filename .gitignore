@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets and credentials
+.env
+credentials.json
+*.pem
+*.key
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data files (business data must not be committed; mmm/data/.gitkeep and mmm/data/README.md are tracked)
+data/*.csv
+data/*.parquet
+data/*.xlsx
+mmm/data/*.csv
+mmm/data/*.parquet
+mmm/data/*.xlsx
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cursor/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Logs
+*.log

@@ -1,0 +1,13 @@
+# Exclude Python virtual environment from Cursor indexing
+mmm/.venv/
+.venv/
+
+# Exclude Python cache
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Exclude build artifacts
+**/dist/
+**/build/
+**/*.egg-info/
