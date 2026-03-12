@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 002
+- Task
+  Data layer utilities
+- Change
+  Added the base `src` package and implemented CSV conversion and validation helpers for the MMM workflow
+- Files
+  `mmm/src/__init__.py`, `mmm/src/utils.py`
+- Reason
+  Give the app a reliable typed data entry point before wiring transforms and models
+
 ### 001
 - Task
   Repo setup and MVP doc alignment
