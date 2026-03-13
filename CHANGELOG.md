@@ -11,6 +11,36 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 068
+- Task
+  Make user-facing outputs consistent with the faithful interpretation layer
+- Change
+  Updated Results labels, help text, compact summary metrics, channel-share wording, the in-app MMM guide, and the AI payload semantics so the app now talks about raw media contribution, baseline contribution, and signed residual gap instead of the old bounded unexplained-story framing, while also formatting CPL comparison outputs more clearly
+- Files
+  `mmm/app.py`, `mmm/src/ui_content.py`, `mmm/src/ai/client.py`, `mmm/tests/test_models_smoke.py`, `CHANGELOG.md`
+- Reason
+  Prevent the app from showing statistically faithful numbers while still describing them with stale bounded-output language that could confuse users or make the visible outputs feel internally inconsistent
+
+### 067
+- Task
+  Add repeatable model smoke coverage and harden PyMC defaults
+- Change
+  Added an automated smoke-test suite covering the frequentist models, the PyMC path, single-channel plus control input, zero-variance channels, holdout diagnostics, and faithful AI payload construction, then raised the default PyMC sampler settings to 500 draws, 500 tune, and 4 chains to make the shipped Bayesian path more stable under the sample-data regression run
+- Files
+  `mmm/tests/test_models_smoke.py`, `mmm/src/app_state.py`, `CHANGELOG.md`
+- Reason
+  Replace one-off manual checks with a repeatable regression command and reduce the chance that the default PyMC flow looks successful while still producing avoidable convergence warnings
+
+### 066
+- Task
+  Replace bounded interpretation with faithful model decomposition
+- Change
+  Removed clipping from the stored baseline contribution, added faithful attribution helpers based on raw channel contribution plus signed residual gap, rewired Results and AI to use the raw fitted decomposition instead of the bounded storytelling layer, and updated the AI analysis prompt to reason about residual gap rather than an artificially cleaned unexplained bucket
+- Files
+  `mmm/app.py`, `mmm/src/results_helpers.py`, `mmm/src/models/base.py`, `mmm/src/models/pymc_model.py`, `mmm/src/ai/client.py`, `mmm/src/ai/prompts/analysis_prompt.txt`, `CHANGELOG.md`
+- Reason
+  Keep the interpretation layer statistically faithful to the fitted model so the business-facing outputs and AI narrative stop clipping, rescaling, or reassigning model components for presentation convenience
+
 ### 065
 - Task
   Final project scrutiny cleanup

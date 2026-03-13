@@ -186,7 +186,6 @@ class PyMCModel:
         baseline = y_pred.copy()
         for ch in channel_names:
             baseline = baseline - contribution[ch]
-        baseline = np.clip(baseline, 0, None)
         baseline_pct = float(np.sum(baseline)) / y_pred_total
 
         coefficient_lower: dict[str, float] | None = None

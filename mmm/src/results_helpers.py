@@ -90,6 +90,59 @@ def build_labeled_bar_chart(
     )
 
 
+def build_signed_bar_chart(
+    df: pd.DataFrame,
+    category_col: str,
+    value_col: str,
+    label_col: str,
+    title: str,
+) -> alt.Chart:
+    chart_df = df.copy()
+    chart_df["Sign"] = np.where(chart_df[value_col] >= 0, "Positive", "Negative")
+    min_value = float(chart_df[value_col].min()) if not chart_df.empty else 0.0
+    max_value = float(chart_df[value_col].max()) if not chart_df.empty else 0.0
+    domain_extent = max(abs(min_value), abs(max_value), 1.0) * 1.15
+    base = alt.Chart(chart_df).encode(
+        x=alt.X(
+            f"{value_col}:Q",
+            title=None,
+            scale=alt.Scale(domain=[-domain_extent, domain_extent]),
+        ),
+        y=alt.Y(f"{category_col}:N", sort=None, title=None),
+        color=alt.Color(
+            "Sign:N",
+            title=None,
+            scale=alt.Scale(
+                domain=["Positive", "Negative"],
+                range=["#4C78A8", "#F58518"],
+            ),
+        ),
+        tooltip=[
+            alt.Tooltip(f"{category_col}:N", title="Item"),
+            alt.Tooltip(f"{value_col}:Q", title="Value", format=",.2f"),
+        ],
+    )
+    bars = base.mark_bar()
+    positive_labels = (
+        base.transform_filter(f"datum.{value_col} >= 0")
+        .mark_text(align="left", baseline="middle", dx=4)
+        .encode(text=alt.Text(f"{label_col}:N"))
+    )
+    negative_labels = (
+        base.transform_filter(f"datum.{value_col} < 0")
+        .mark_text(align="right", baseline="middle", dx=-4)
+        .encode(text=alt.Text(f"{label_col}:N"))
+    )
+    zero_rule = alt.Chart(pd.DataFrame({value_col: [0.0]})).mark_rule(color="#808080").encode(
+        x=alt.X(f"{value_col}:Q")
+    )
+    return (zero_rule + bars + positive_labels + negative_labels).properties(
+        title=title,
+        height=max(180, 36 * len(chart_df)),
+        width="container",
+    )
+
+
 def build_stacked_period_share_chart(
     df: pd.DataFrame,
     title: str,
@@ -140,6 +193,7 @@ def build_stacked_time_decomposition_chart(
     special_colors = {
         "baseline": "#72B7B2",
         "unexplained_gap": "#F58518",
+        "residual_gap": "#F58518",
         "other": "#B279A2",
     }
     palette = [
@@ -271,6 +325,44 @@ def build_spend_vs_contribution_chart(
         )
     )
     return (rule + points + labels).properties(title=title, height=max(220, 42 * len(df["Channel"].unique())), width="container")
+
+
+def compute_faithful_attribution(
+    result: Any,
+    actual_values: np.ndarray,
+    row_mask: np.ndarray | None = None,
+) -> tuple[dict[str, float], float, float]:
+    channel_vectors, baseline_vector, residual_vector = compute_faithful_attribution_vectors(
+        result,
+        actual_values,
+        row_mask=row_mask,
+    )
+    channel_totals = {
+        channel: float(np.sum(values))
+        for channel, values in channel_vectors.items()
+    }
+    baseline_total = float(np.sum(baseline_vector))
+    residual_total = float(np.sum(residual_vector))
+    return channel_totals, baseline_total, residual_total
+
+
+def compute_faithful_attribution_vectors(
+    result: Any,
+    actual_values: np.ndarray,
+    row_mask: np.ndarray | None = None,
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
+    actual_array = np.asarray(actual_values, dtype=np.float64)
+    y_pred_array = np.asarray(result.y_pred, dtype=np.float64)
+    if row_mask is None:
+        row_mask = np.ones_like(y_pred_array, dtype=bool)
+
+    channel_vectors = {
+        channel: np.asarray(result.contribution[channel][row_mask], dtype=np.float64)
+        for channel in result.channel_names
+    }
+    baseline_vector = np.asarray(result.baseline[row_mask], dtype=np.float64)
+    residual_vector = np.asarray(actual_array[row_mask] - y_pred_array[row_mask], dtype=np.float64)
+    return channel_vectors, baseline_vector, residual_vector
 
 
 def compute_display_attribution(

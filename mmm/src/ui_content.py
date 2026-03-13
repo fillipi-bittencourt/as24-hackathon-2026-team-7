@@ -40,16 +40,21 @@ TABLE_COLUMN_HELP_TEXT = {
     "CPL": "Cost per lead. Lower means more efficient lead generation.",
     "CPL lower": "Lower uncertainty bound for CPL, when available.",
     "CPL upper": "Upper uncertainty bound for CPL, when available.",
-    "Contribution": "Total modeled leads attributed to the channel in the selected view.",
-    "Contribution share (%)": "Share of actual leads attributed to the channel in the selected view.",
-    "Share": "Share of actual leads attributed to the channel in the selected view.",
-    "Share_pct": "Share of actual leads attributed to the channel in the selected view.",
+    "Contribution": "Raw modeled contribution attributed to the channel in the selected view. It can be negative when the fitted coefficient is negative.",
+    "Contribution share (%)": "Raw channel contribution divided by actual leads in the selected view. It can be negative or above 100 when other model components offset it.",
+    "Share of actual (%)": "Raw channel contribution divided by actual leads in the selected view. It can be negative or above 100 when other model components offset it.",
+    "Share": "Raw channel contribution divided by actual leads in the selected view.",
+    "Share_pct": "Raw channel contribution divided by actual leads in the selected view.",
     "Spend total": "Total spend for the channel in the selected period.",
     "Average weekly spend": "Average spend per period in the selected view.",
     "Average weekly contribution": "Average modeled leads contributed per period in the selected view.",
     "Carryover": "Approximate number of periods the channel effect lingers after spend.",
     "Saturation status": "Whether the channel looks under-saturated, near saturation, or over-saturated.",
     "Saturation note": "Short interpretation of the current saturation status.",
+    "Predicted leads": "Total leads predicted by the fitted model in the selected view.",
+    "Media contribution": "Sum of the raw modeled channel contributions in the selected view.",
+    "Baseline contribution": "Raw modeled baseline contribution from the intercept and control effects.",
+    "Residual gap": "Actual leads minus predicted leads in the selected view. Positive means under-prediction and negative means over-prediction.",
     "What it does": "Plain-language description of what the model or concept does.",
     "Best use case": "When this model or concept is most useful.",
     "Strength": "Main reason to prefer this model or concept.",
@@ -78,6 +83,7 @@ TABLE_NUMBER_COLUMNS = {
     "Coefficient upper",
     "Contribution",
     "Contribution share (%)",
+    "Share of actual (%)",
     "Share",
     "Share_pct",
     "Spend total",
@@ -181,9 +187,9 @@ def render_info_tab() -> None:
 
             The non-media part of the model. This includes the intercept and any control-variable effect.
 
-            **Unexplained gap**
+            **Residual gap**
 
-            The part of the actual outcome that the displayed media-plus-baseline view still does not explain.
+            The difference between actual leads and predicted leads after all modeled channel and baseline effects are counted.
 
             **CPL**
 
@@ -512,16 +518,16 @@ def render_info_tab() -> None:
             You are looking for whether the model broadly tracks the timing and direction of movement in the target, not whether it matches every point perfectly.
             """
         )
-    with st.expander("Media, baseline, and unexplained gap"):
+    with st.expander("Media, baseline, and residual gap"):
         st.markdown(
             """
             Use this to explain the result in business language.
 
-            - `Media leads` is the displayed portion linked to channels
-            - `Baseline leads` is the non-media part
-            - `Unexplained gap` is what the displayed split still does not account for
+            - `Media contribution` is the sum of the raw modeled channel effects
+            - `Baseline contribution` is the raw non-media part of the fitted model
+            - `Residual gap` is `actual - predicted`
 
-            A large unexplained gap means you should be more cautious with channel-level decisions.
+            A large residual gap means the fitted model is missing meaningful movement in the target and should be treated more cautiously.
             """
         )
     with st.expander("Spend share vs contribution share"):

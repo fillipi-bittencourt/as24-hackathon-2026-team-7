@@ -44,11 +44,11 @@ from src.results_helpers import (
     build_actual_vs_predicted_chart,
     build_labeled_bar_chart,
     build_period_mask,
+    build_signed_bar_chart,
     build_spend_vs_contribution_chart,
-    build_stacked_period_share_chart,
     build_stacked_time_decomposition_chart,
-    compute_display_attribution,
-    compute_display_attribution_vectors,
+    compute_faithful_attribution,
+    compute_faithful_attribution_vectors,
     compute_mape_non_zero,
     compute_view_channel_metrics,
     format_cpl,
@@ -1472,7 +1472,7 @@ def build_recommendation_lines(
     worst_value: float | None,
     reallocation_pct: int,
     holdout_meta: dict[str, Any] | None,
-    unexplained_share: float,
+    residual_gap_share: float,
     negative_signal_channels: list[str],
     selected_period: str,
     visible_channels: list[str],
@@ -1487,8 +1487,8 @@ def build_recommendation_lines(
             caution_reasons.append(f"Holdout R² is only {holdout_r_squared:.2f}.")
         if holdout_mape is not None and float(holdout_mape) > 30.0:
             caution_reasons.append(f"Holdout MAPE is {float(holdout_mape):.1f}%.")
-    if unexplained_share > 20.0:
-        caution_reasons.append(f"Unexplained share is {unexplained_share:.1f}%.")
+    if residual_gap_share > 20.0:
+        caution_reasons.append(f"Absolute residual gap is {residual_gap_share:.1f}% of actual leads.")
     if negative_signal_channels:
         caution_reasons.append(
             "Negative fitted media signals are present for "
@@ -1515,8 +1515,8 @@ def build_recommendation_lines(
     ]
 
 
-def build_gap_label(hidden_media_total: float) -> str:
-    return "Hidden + unexplained gap" if hidden_media_total > 0 else "Unexplained gap"
+def build_residual_label() -> str:
+    return "Residual gap"
 
 
 def build_pre_saturation_series(
@@ -1543,9 +1543,9 @@ def render_results_tab() -> None:
             ("R²", "Share of variation explained by the model. Higher is better, but it is still an in-sample metric here."),
             ("RMSE", "Average prediction error in target units. Lower is better."),
             ("CPL", "Cost per lead. Lower means more efficient media."),
-            ("Contribution", "Modeled leads attributed to a channel over the selected view."),
-            ("Baseline", "Leads explained by non-media effects and the model intercept."),
-            ("Unexplained gap", "Remaining leads not covered by the displayed media and baseline split."),
+            ("Contribution", "Raw modeled channel contribution over the selected view. It can be negative when the fitted coefficient is negative."),
+            ("Baseline", "Raw modeled baseline contribution from the intercept and any control effects."),
+            ("Residual gap", "Actual leads minus predicted leads over the selected view. Positive means the model under-predicts and negative means it over-predicts."),
         ],
     )
     render_reference_values_expander(
@@ -1555,7 +1555,7 @@ def render_results_tab() -> None:
             ("R²", "0.30 to 0.60 usable", "Good enough for early insight and internal discussion, especially in fast MMM prototypes."),
             ("R²", "Above 0.60 strong for this type of app", "Usually means the model explains a large share of observed movement, but still validate out of sample."),
             ("MAPE non-zero", "Below 20% often workable", "Lower is better. Use with RMSE and business context, not as a single pass/fail rule."),
-            ("Unexplained gap", "Near 0% is easier to communicate", "Higher unexplained share means more of the actual total is not covered by the displayed split."),
+            ("Residual gap", "Closer to 0% is better", "Use the signed gap to see whether the model is systematically under- or over-predicting in the selected view."),
             ("CPL", "Lower is better", "Compare channels relative to each other, not against one universal number."),
             ("Contribution share", "Large share plus low CPL is strongest", "A channel is more persuasive when it combines meaningful volume with efficient CPL."),
             ("Recommendation quality", "Use as directional guidance", "Treat the action section as a heuristic, not a forecast or final media plan."),
@@ -1588,16 +1588,20 @@ def render_results_tab() -> None:
 
     actual_values = st.session_state["y"]
     actual_total = float(actual_values[period_mask].sum())
-    display_channel_totals, baseline_total, unexplained_total = compute_display_attribution(
+    channel_totals, baseline_total, residual_total = compute_faithful_attribution(
         result,
         actual_values,
         row_mask=period_mask,
     )
-    unexplained_share = (
-        (unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
+    predicted_total = float(np.sum(result.y_pred[period_mask]))
+    residual_share = (
+        (residual_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
     )
-    if math.isclose(unexplained_share, 0.0, abs_tol=0.05):
-        unexplained_share = 0.0
+    residual_share_abs = abs(residual_share)
+    if math.isclose(residual_share, 0.0, abs_tol=0.05):
+        residual_share = 0.0
+    if math.isclose(residual_share_abs, 0.0, abs_tol=0.05):
+        residual_share_abs = 0.0
 
     default_visual_channels = st.session_state.get("selected_visual_channels") or result.channel_names
     selected_visual_channels = st.multiselect(
@@ -1609,20 +1613,17 @@ def render_results_tab() -> None:
     st.session_state["selected_visual_channels"] = selected_visual_channels or result.channel_names
     visible_channels = st.session_state["selected_visual_channels"]
     visible_channel_totals = {
-        channel: display_channel_totals.get(channel, 0.0)
+        channel: channel_totals.get(channel, 0.0)
         for channel in visible_channels
     }
+    media_total = sum(channel_totals.values())
     visible_media_total = sum(visible_channel_totals.values())
     hidden_media_total = sum(
         float(value)
-        for channel, value in display_channel_totals.items()
+        for channel, value in channel_totals.items()
         if channel not in visible_channels
     )
-    gap_label = build_gap_label(hidden_media_total)
-    filtered_unexplained_total = hidden_media_total + unexplained_total
-    filtered_unexplained_share = (
-        (filtered_unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
-    )
+    residual_label = build_residual_label()
     visible_spend_totals, visible_cpl_map = compute_view_channel_metrics(
         st.session_state["df"],
         visible_channels,
@@ -1634,9 +1635,9 @@ def render_results_tab() -> None:
         if float(result.coefficients.get(channel, 0.0)) < 0.0
     ]
     show_baseline = st.checkbox(
-        "Show baseline and unexplained portion",
+        "Show baseline and residual components",
         value=bool(st.session_state.get("show_baseline_visual", True)),
-        help="Include baseline and the unexplained gap in the visual summaries.",
+        help="Include raw baseline contribution and the signed residual gap in the visual summaries.",
     )
     st.session_state["show_baseline_visual"] = show_baseline
 
@@ -1646,7 +1647,7 @@ def render_results_tab() -> None:
     st.dataframe(comparison_df, width="stretch")
     st.caption("Model comparison table. In-sample columns describe the final fitted model. Holdout columns describe a time-based validation split using the latest 20% of periods.")
     st.info(
-        "Statistical note: coefficients and fit metrics reflect the raw fitted model. The business-facing media, baseline, and unexplained split below is a bounded display decomposition for interpretation and may differ from the raw model decomposition."
+        "Statistical note: the contribution, baseline, and residual values below now reflect the raw fitted model decomposition for the selected period. They are no longer clipped or rescaled to force a clean stakeholder-facing split."
     )
 
     coefficient_df = pd.DataFrame(
@@ -1664,20 +1665,20 @@ def render_results_tab() -> None:
     cpl_df = pd.DataFrame(
         {
             name: {
-                channel: st.session_state["model_results"][name].cpl.get(channel)
+                channel: format_cpl(st.session_state["model_results"][name].cpl.get(channel))
                 for channel in st.session_state["selected_visual_channels"]
             }
             for name in model_names
         }
     )
     st.dataframe(cpl_df, width="stretch")
-    st.caption("CPL comparison table. Lower CPL means the channel is more efficient in that model. All reported fit and attribution are in-sample.")
+    st.caption("CPL comparison table. Lower CPL means the channel is more efficient in that model. `N/A` means the model assigned zero or negative attributed leads to that channel in the selected fit.")
 
     best_name, best_value = pick_best_channel(visible_cpl_map)
     fitted_at = st.session_state["model_results_meta"].get(selected_model, {}).get("fitted_at")
 
     st.subheader("What is happening?")
-    st.caption("Use this section for the top-line picture. It compares total leads, the part linked to media, the part explained by baseline effects, and the remaining gap.")
+    st.caption("Use this section for the top-line picture. It compares actual leads with the raw model decomposition into media contribution, baseline contribution, and the signed residual gap.")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric(
         "Total leads",
@@ -1685,27 +1686,27 @@ def render_results_tab() -> None:
         help="All observed leads in the loaded dataset.",
     )
     col2.metric(
-        "Media leads",
-        format_number(visible_media_total),
-        help="Displayed share of actual leads attributed to media after bounding the decomposition to total leads.",
+        "Media contribution",
+        format_signed_number(media_total),
+        help="Raw modeled contribution from all media channels in the selected period.",
     )
     col3.metric(
-        "Baseline leads",
-        format_number(baseline_total),
-        help="Displayed share of actual leads attributed to baseline and control effects.",
+        "Baseline contribution",
+        format_signed_number(baseline_total),
+        help="Raw modeled baseline contribution, which absorbs intercept and control effects.",
     )
     col4.metric(
-        gap_label,
-        format_signed_number(filtered_unexplained_total),
-        f"{filtered_unexplained_share:.1f}%",
-        help="Remaining portion of actual leads not explained by the current visible media view and baseline. If some channels are hidden, this gap includes those hidden media contributions too.",
+        residual_label,
+        format_signed_number(residual_total),
+        f"{residual_share:+.1f}% of actual",
+        help="Signed model residual for the selected period. Positive means the model under-predicts actual leads and negative means it over-predicts them.",
     )
     col5, col6 = st.columns(2)
     col5.metric(
         "Top channel by CPL",
         best_name or "N/A",
         format_cpl(best_value) if best_value is not None else None,
-        help="The channel with the lowest cost per lead in the selected model.",
+        help="The currently visible channel with the lowest cost per lead in the selected model.",
     )
     col6.metric(
         "Model fit",
@@ -1713,35 +1714,28 @@ def render_results_tab() -> None:
         f"RMSE {result.rmse:,.0f}",
         help="R² shows how much variation the model explains. RMSE shows the average prediction error in leads.",
     )
-    summary_rows = [
-        {"Segment": "Media leads", "Value": visible_media_total, "SegmentOrder": 1},
-        {"Segment": "Baseline leads", "Value": baseline_total, "SegmentOrder": 2},
-    ]
+    summary_rows = [{"Component": "Media contribution", "Value": media_total}]
     if show_baseline:
-        summary_rows.append(
-            {
-                "Segment": gap_label,
-                "Value": abs(filtered_unexplained_total),
-                "SegmentOrder": 3,
-            }
-        )
+        summary_rows.append({"Component": "Baseline contribution", "Value": baseline_total})
+        summary_rows.append({"Component": residual_label, "Value": residual_total})
     summary_df = pd.DataFrame(summary_rows)
-    summary_df["Period"] = selected_period
-    if not math.isclose(actual_total, 0.0):
-        summary_df["SharePct"] = (summary_df["Value"] / actual_total) * 100
-    else:
-        summary_df["SharePct"] = 0.0
-    summary_df["ShareLabel"] = summary_df["SharePct"].apply(
-        lambda value: f"{value:.0f}%" if value >= 6 else ""
-    )
-    summary_df["TotalLeads"] = actual_total
-    summary_df["TotalLabel"] = f"Total {format_number(actual_total)}"
+    summary_df["Label"] = summary_df["Value"].apply(format_signed_number)
     st.altair_chart(
-        build_stacked_period_share_chart(
+        build_signed_bar_chart(
             summary_df,
-            "Lead share in the selected period",
+            "Component",
+            "Value",
+            "Label",
+            "Raw model decomposition in the selected period",
         )
     )
+    st.caption(
+        f"Predicted leads for the selected period are {format_signed_number(predicted_total)}. Actual leads equal predicted leads plus the signed residual gap."
+    )
+    if hidden_media_total:
+        st.info(
+            f"The current channel filter hides {format_signed_number(hidden_media_total)} of raw media contribution. The contribution, baseline, and residual metrics above still reflect the full selected model, while the channel-specific tables and charts below use the current filter."
+        )
     actual_vs_pred_rows = []
     selected_dates = pd.to_datetime(date_series[period_mask]).reset_index(drop=True)
     selected_actual_series = np.asarray(actual_values[period_mask], dtype=np.float64)
@@ -1896,7 +1890,7 @@ def render_results_tab() -> None:
             st.dataframe(pd.DataFrame(flagged_parameters), width="stretch")
 
     st.subheader("Why is it happening?")
-    st.caption("Use this section to explain channel efficiency. Focus on CPL, contribution, and how much each channel accounts for in the selected model.")
+    st.caption("Use this section to explain channel efficiency. Focus on CPL, raw contribution, and each channel's raw share of actual leads in the current filtered view.")
     if negative_signal_channels:
         st.warning(
             "Some selected channels have negative fitted coefficients: "
@@ -1905,7 +1899,14 @@ def render_results_tab() -> None:
         )
     if hidden_media_total > 0:
         st.info(
-            f"The current chart filter hides {format_number(hidden_media_total)} media-attributed leads. That hidden portion is folded into the displayed gap so the filtered view still adds up cleanly."
+            f"The current chart filter hides {format_signed_number(hidden_media_total)} of media contribution. Hidden media is excluded from the channel table and charts below, but it is not folded into the residual gap."
+        )
+    if selected_period != "All data" and any(
+        st.session_state["adstock_type"].get(channel, "geometric") == "geometric"
+        for channel in visible_channels
+    ):
+        st.warning(
+            "Selected-period CPL is directional in this filtered view because adstock can carry prior-period spend into the current window while spend totals are counted only inside the selected period."
         )
     why_rows: list[dict[str, Any]] = []
     for channel in st.session_state["selected_visual_channels"]:
@@ -1915,7 +1916,7 @@ def render_results_tab() -> None:
             "Coefficient": round(float(result.coefficients[channel]), 4),
             "CPL": format_cpl(visible_cpl_map[channel]),
             "Contribution": round(contribution_total, 2),
-            "Share": round((contribution_total / actual_total) * 100, 2)
+            "Share of actual (%)": round((contribution_total / actual_total) * 100, 2)
             if not math.isclose(actual_total, 0.0)
             else 0.0,
         }
@@ -1927,6 +1928,9 @@ def render_results_tab() -> None:
         why_rows.append(row)
     why_df = pd.DataFrame(why_rows)
     st.dataframe(why_df, width="stretch")
+    st.caption(
+        "Raw contribution share is contribution divided by actual leads in the selected period, so it can be negative or exceed 100% when baseline and residual components offset the channel effects."
+    )
     total_visible_spend = float(sum(visible_spend_totals.values()))
     benchmarking_rows = []
     for channel in visible_channels:
@@ -1961,9 +1965,10 @@ def render_results_tab() -> None:
         st.altair_chart(
             build_spend_vs_contribution_chart(
                 benchmarking_df,
-                "Spend share vs contribution share",
+                "Spend share vs raw contribution share",
             )
         )
+        st.caption("Contribution share here is raw contribution divided by actual leads, so negative values mean the fitted model assigns a negative net effect to that channel.")
 
     cpl_chart = {
         channel: value
@@ -2003,7 +2008,7 @@ def render_results_tab() -> None:
         worst_value=worst_value,
         reallocation_pct=reallocation_pct,
         holdout_meta=holdout_meta,
-        unexplained_share=filtered_unexplained_share,
+        residual_gap_share=residual_share_abs,
         negative_signal_channels=negative_signal_channels,
         selected_period=selected_period,
         visible_channels=visible_channels,
@@ -2033,7 +2038,7 @@ def render_results_tab() -> None:
         highlighted_channels = ordered_channels[:top_n_channels]
         other_channels = ordered_channels[top_n_channels:]
 
-        channel_vectors, baseline_vector, unexplained_vector = compute_display_attribution_vectors(
+        channel_vectors, baseline_vector, residual_vector = compute_faithful_attribution_vectors(
             result,
             st.session_state["y"],
             row_mask=period_mask,
@@ -2050,7 +2055,7 @@ def render_results_tab() -> None:
         insight_df = pd.DataFrame(insight_series)
         if show_baseline:
             insight_df["baseline"] = baseline_vector
-            insight_df["unexplained_gap"] = unexplained_vector
+            insight_df["residual_gap"] = residual_vector
         insight_df.insert(0, "date", date_series[period_mask].to_numpy())
         insight_long_df = insight_df.melt(
             id_vars=["date"],
@@ -2073,12 +2078,19 @@ def render_results_tab() -> None:
             lambda value: format_number(float(value))
         )
         insight_long_df["SegmentOrder"] = insight_long_df["variable"].apply(
-            lambda value: 1 if value not in {"baseline", "unexplained_gap"} else 2 if value == "baseline" else 3
+            lambda value: 1 if value not in {"baseline", "residual_gap"} else 2 if value == "baseline" else 3
         )
+        has_negative_components = bool((insight_long_df["leads"] < 0).any())
+        share_mode_enabled = decomposition_mode == "Share of leads"
+        if share_mode_enabled and has_negative_components:
+            st.warning(
+                "Share mode is disabled for this view because the raw fitted decomposition contains negative components. Showing absolute leads instead."
+            )
+            share_mode_enabled = False
         insight_chart = build_stacked_time_decomposition_chart(
             insight_long_df,
             "Stacked lead decomposition over time",
-            share_mode=decomposition_mode == "Share of leads",
+            share_mode=share_mode_enabled,
         )
         st.altair_chart(insight_chart)
 
@@ -2153,9 +2165,10 @@ def render_results_tab() -> None:
             {"Metric": "Model", "Value": selected_model},
             {"Metric": "Period", "Value": selected_period},
             {"Metric": "Total leads", "Value": round(actual_total, 2)},
-            {"Metric": "Media leads", "Value": round(visible_media_total, 2)},
-            {"Metric": "Baseline leads", "Value": round(baseline_total, 2)},
-            {"Metric": gap_label, "Value": round(filtered_unexplained_total, 2)},
+            {"Metric": "Predicted leads", "Value": round(predicted_total, 2)},
+            {"Metric": "Media contribution", "Value": round(media_total, 2)},
+            {"Metric": "Baseline contribution", "Value": round(baseline_total, 2)},
+            {"Metric": residual_label, "Value": round(residual_total, 2)},
             {"Metric": "R_squared", "Value": round(float(result.r_squared), 4)},
             {"Metric": "RMSE", "Value": round(float(result.rmse), 2)},
         ]
@@ -2209,7 +2222,7 @@ def render_results_tab() -> None:
     )
 
     with st.expander("Quick Insights", expanded=False):
-        st.caption("This section condenses the most useful summary points into a small set of operational metrics.")
+        st.caption("This section condenses the most useful summary points into a small set of operational metrics for the current visible-channel view.")
         overall_cpl = (
             sum(visible_spend_totals.values()) / visible_media_total
             if visible_media_total > 0
@@ -2219,26 +2232,29 @@ def render_results_tab() -> None:
         quick_col1.metric(
             "Overall marketing CPL",
             format_cpl(overall_cpl),
-            help="Total spend divided by total media-attributed leads.",
+            help="Total spend divided by total media contribution for the currently visible channels.",
         )
         quick_col2.metric(
             "Best channel",
             best_name or "N/A",
             format_cpl(best_value) if best_value is not None else None,
-            help="The channel with the lowest cost per lead in the selected model.",
+            help="The visible channel with the lowest cost per lead in the selected model.",
         )
         quick_col3, quick_col4 = st.columns(2)
         quick_col3.metric(
             "Worst channel",
             worst_name or "N/A",
             format_cpl(worst_value) if worst_value is not None else None,
-            help="The channel with the highest cost per lead in the selected model.",
+            help="The visible channel with the highest cost per lead in the selected model.",
         )
         quick_col4.metric(
-            "Media vs baseline",
-            f"{round((visible_media_total / actual_total) * 100, 1) if not math.isclose(actual_total, 0.0) else 0.0}%",
-            f"Baseline {round((baseline_total / actual_total) * 100, 1) if not math.isclose(actual_total, 0.0) else 0.0}%",
-            help="Share of actual leads assigned to media versus the baseline part of the displayed decomposition.",
+            residual_label,
+            format_signed_number(residual_total),
+            f"{residual_share:+.1f}% of actual",
+            help="Signed residual over the selected period. Positive means under-prediction and negative means over-prediction.",
+        )
+        st.info(
+            f"Raw contribution totals in this view: media {format_signed_number(media_total)}, baseline {format_signed_number(baseline_total)}."
         )
         saturated_channels = []
         for channel in visible_channels:
@@ -2278,26 +2294,26 @@ def render_ai_tab() -> None:
     period_mask = build_period_mask(date_series, selected_period)
     actual_values = st.session_state["y"]
     actual_total = float(actual_values[period_mask].sum())
-    display_channel_totals, baseline_total, unexplained_total = compute_display_attribution(
+    channel_totals, baseline_total, residual_total = compute_faithful_attribution(
         result,
         actual_values,
         row_mask=period_mask,
     )
     visible_channel_totals = {
-        channel: display_channel_totals.get(channel, 0.0)
+        channel: channel_totals.get(channel, 0.0)
         for channel in selected_visual_channels
     }
     media_total = sum(visible_channel_totals.values())
     hidden_media_total = sum(
         float(value)
-        for channel, value in display_channel_totals.items()
+        for channel, value in channel_totals.items()
         if channel not in selected_visual_channels
     )
-    gap_label = build_gap_label(hidden_media_total)
-    filtered_unexplained_total = hidden_media_total + unexplained_total
-    filtered_unexplained_share = (
-        (filtered_unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
+    residual_label = build_residual_label()
+    residual_share = (
+        (residual_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
     )
+    residual_share_abs = abs(residual_share)
     _, visible_cpl_map = compute_view_channel_metrics(
         st.session_state["df"],
         list(selected_visual_channels),
@@ -2311,9 +2327,6 @@ def render_ai_tab() -> None:
         if float(result.coefficients.get(channel, 0.0)) < 0.0
     ]
     holdout_meta = st.session_state["model_results_meta"].get(selected_model, {}).get("holdout")
-    unexplained_share = (
-        (unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
-    )
     reallocation_pct = 0
     if best_value and worst_value and worst_value > 0:
         reallocation_pct = min(50, round((worst_value - best_value) / worst_value * 100))
@@ -2484,9 +2497,10 @@ def render_ai_tab() -> None:
                     {"Metric": "Model", "Value": selected_model},
                     {"Metric": "Period", "Value": selected_period},
                     {"Metric": "Total leads", "Value": round(actual_total, 2)},
-                    {"Metric": "Media leads", "Value": round(media_total, 2)},
-                    {"Metric": "Baseline leads", "Value": round(baseline_total, 2)},
-                    {"Metric": gap_label, "Value": round(filtered_unexplained_total, 2)},
+                    {"Metric": "Predicted leads", "Value": round(float(np.sum(result.y_pred[period_mask])), 2)},
+                    {"Metric": "Media contribution", "Value": round(media_total, 2)},
+                    {"Metric": "Baseline contribution", "Value": round(baseline_total, 2)},
+                    {"Metric": residual_label, "Value": round(residual_total, 2)},
                     {"Metric": "R_squared", "Value": round(float(result.r_squared), 4)},
                     {"Metric": "RMSE", "Value": round(float(result.rmse), 2)},
                 ]
@@ -2516,7 +2530,7 @@ def render_ai_tab() -> None:
                 worst_value=worst_value,
                 reallocation_pct=reallocation_pct,
                 holdout_meta=holdout_meta,
-                unexplained_share=filtered_unexplained_share,
+                residual_gap_share=residual_share_abs,
                 negative_signal_channels=negative_signal_channels,
                 selected_period=selected_period,
                 visible_channels=list(selected_visual_channels),

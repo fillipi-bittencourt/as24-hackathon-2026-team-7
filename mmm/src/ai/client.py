@@ -10,7 +10,7 @@ import pandas as pd
 
 from src.results_helpers import (
     build_period_mask,
-    compute_display_attribution,
+    compute_faithful_attribution,
     compute_view_channel_metrics,
 )
 
@@ -101,7 +101,7 @@ def build_payload(
     period_mask = build_period_mask(date_series, selected_period)
     selected_rows = int(np.sum(period_mask))
     actual_total = float(y[period_mask].sum()) if y is not None else 0.0
-    display_channel_totals, baseline_total, unexplained_total = compute_display_attribution(
+    channel_totals, baseline_total, residual_total = compute_faithful_attribution(
         model_result,
         y,
         row_mask=period_mask,
@@ -110,12 +110,12 @@ def build_payload(
         df,
         list(selected_channels),
         period_mask,
-        display_channel_totals,
+        channel_totals,
     )
 
     channels: list[dict[str, Any]] = []
     for ch in selected_channels:
-        contribution_total = float(display_channel_totals.get(ch, 0.0))
+        contribution_total = float(channel_totals.get(ch, 0.0))
         contribution_share = (contribution_total / actual_total) * 100 if not np.isclose(actual_total, 0.0) else None
         channels.append(
             {
@@ -130,16 +130,15 @@ def build_payload(
         )
     hidden_media_total = sum(
         float(value)
-        for channel, value in display_channel_totals.items()
+        for channel, value in channel_totals.items()
         if channel not in selected_channels
     )
-    filtered_unexplained_total = hidden_media_total + unexplained_total
 
     predicted_total = float(np.sum(model_result.y_pred[period_mask]))
     holdout_meta = model_results_meta.get(model_result.model_name, {}).get("holdout")
     bayesian_meta = model_results_meta.get(model_result.model_name, {}).get("bayesian_diagnostics")
     methodology_notes = [
-        "Business-facing contribution, baseline, and unexplained totals are bounded display values for interpretation and can differ from the raw fitted decomposition."
+        "Contribution, baseline, and residual totals reflect the raw fitted model decomposition for the selected period without clipping or rescaling."
     ]
     if selected_period != "All data" and any(
         adstock_type.get(channel, "geometric") == "geometric"
@@ -150,7 +149,7 @@ def build_payload(
         )
     if hidden_media_total > 0:
         methodology_notes.append(
-            "The current channel filter hides some modeled media contribution, so the displayed unexplained gap includes hidden media outside the selected channel view."
+            "The current channel filter hides some modeled media contribution. Hidden media is tracked separately and is not folded into the residual gap."
         )
     if model_result.model_name == "PyMC":
         methodology_notes.append(
@@ -188,9 +187,15 @@ def build_payload(
         },
         "actual_total_leads": _clean_number(actual_total),
         "predicted_total_leads": _clean_number(predicted_total),
-        "unexplained_total_leads": _clean_number(unexplained_total),
+        "baseline_contribution_total_leads": _clean_number(baseline_total),
+        "residual_gap_total_leads": _clean_number(residual_total),
+        "baseline_share_of_actual_pct": _clean_number(
+            (baseline_total / actual_total) * 100 if not np.isclose(actual_total, 0.0) else 0.0
+        ),
+        "residual_gap_share_of_actual_pct": _clean_number(
+            (residual_total / actual_total) * 100 if not np.isclose(actual_total, 0.0) else 0.0
+        ),
         "hidden_media_total_leads": _clean_number(hidden_media_total),
-        "display_gap_total_leads": _clean_number(filtered_unexplained_total),
         "channels": channels,
         "controls": [{"name": col} for col in control_cols],
         "baseline_pct": _clean_number((baseline_total / actual_total) * 100 if not np.isclose(actual_total, 0.0) else 0.0),

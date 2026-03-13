@@ -51,9 +51,9 @@ STATE_DEFAULTS: dict[str, Any] = {
         "channel_prior_overrides": {},
     },
     "pymc_sampler_config": {
-        "draws": 300,
-        "tune": 200,
-        "chains": 2,
+        "draws": 500,
+        "tune": 500,
+        "chains": 4,
     },
     "pymc_prior_signature": None,
     "pymc_prior_reasoning": {},

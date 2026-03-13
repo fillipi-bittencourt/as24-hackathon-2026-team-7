@@ -119,7 +119,6 @@ def build_model_result(
     baseline = y_pred.copy()
     for ch in channel_names:
         baseline = baseline - contribution[ch]
-    baseline = np.clip(baseline, 0, None)
     baseline_pct = float(baseline.sum()) / y_pred_total
 
     return ModelResult(

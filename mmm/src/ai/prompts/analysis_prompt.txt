@@ -25,7 +25,7 @@ Write six sections in this exact order
 - keep each bullet to one sentence
 
 2. Statistical rigor check
-- assess sample size, fit quality, unexplained leads, holdout validation when available, and any methodology_notes
+- assess sample size, fit quality, residual gap, holdout validation when available, and any methodology_notes
 - say clearly whether the output is strong enough for directional use, budget testing only, or not decision-ready
 - if holdout_validation exists, weight it more heavily than in-sample fit
 - if bayesian_diagnostics shows 1 chain, divergences, weak r_hat, or weak ESS, explicitly downgrade confidence in interval claims
@@ -51,7 +51,7 @@ Write six sections in this exact order
 Guardrails
 - do not invent numbers, diagnostics, or methodology facts
 - every recommendation must cite at least one number from the payload
-- mention unexplained leads or model limitations in the rigor section
+- mention the residual gap or model limitations in the rigor section
 - do not claim causality or certainty
 - do not hide mixed evidence
 - if methodology_notes contain a warning, reflect it directly in the answer
