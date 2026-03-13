@@ -12,7 +12,8 @@ Rim Nasfi · Kelly Mitchell · Hussain Jalaluddin · Fillipi Bittencourt
 
 The product is a runnable **Streamlit MMM app** in `mmm/`.
 
-- current app navigation: sidebar step menu with `Data`, `Config`, `Priors`, `Info`, `Fit`, `Results`, `AI`
+- current app navigation: sidebar step menu with `Data`, `Overview`, `Config`, `Priors`, `Fit`, `Results`, `AI`
+- current help/reference section: separate `Guide` entry in the sidebar
 - current model support: `OLS`, `Ridge`, `Lasso`, `ElasticNet`, `PyMC`
 - current export support: results and AI analysis as `CSV` and `PDF`
 - sample dataset included: `mmm/data/mmm_demo_sample.csv`
@@ -69,11 +70,12 @@ as24-hackathon-2026-team-7/
 
 1. Run `./run_app.sh` inside `mmm/`
 2. Load `mmm/data/mmm_demo_sample.csv`
-3. Review the `Info` step if the audience needs a quick MMM explanation
-4. Apply default transforms
-5. Fit `OLS` and `Ridge`
-6. Use `Results` to answer what is happening, why, and what next
-7. Use `AI` to generate the in-depth analysis or short executive version
+3. Review `Overview` for dataset quality, target behavior, and multicollinearity
+4. Open `Guide` if the audience needs a quick MMM explanation
+5. Apply default transforms
+6. Fit `OLS` and `Ridge`
+7. Use `Results` to answer what is happening, why, and what next
+8. Use `AI` to generate the in-depth analysis or short executive version
 
 ---
 

@@ -11,6 +11,26 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 062
+- Task
+  Demo cohesion and diagnostics cleanup
+- Change
+  Clarified filtered-gap semantics across Results and AI, softened the Overview multicollinearity language to frame it as a pre-model diagnostic, skipped the expensive PyMC holdout refit in the demo flow, moved the Overview logic into a dedicated module, and synchronized the main demo-facing docs to the current `Data -> Overview -> Config -> Priors -> Fit -> Results -> AI` workflow with the separate `Guide` section
+- Files
+  `mmm/app.py`, `mmm/src/data_overview.py`, `mmm/src/results_helpers.py`, `mmm/src/ai/client.py`, `README.md`, `mmm/README.md`, `docs/CHECKLIST.md`, `docs/DEMO_PREP.md`, `mmm/docs/08_UX_FLOW.md`, `CHANGELOG.md`
+- Reason
+  Tighten the last demo-facing cohesion gaps so the app, AI output, and docs describe the same workflow and use less misleading statistical language
+
+### 061
+- Task
+  Refine and decompose the data overview step
+- Change
+  Moved the new `Overview` workflow logic into a dedicated `data_overview` module and expanded it with health tags, channel spend aggregation summaries, richer multicollinearity risk tags, and a cleaner statistical inspection flow for the validated dataset
+- Files
+  `mmm/app.py`, `mmm/src/data_overview.py`, `CHANGELOG.md`
+- Reason
+  Keep the workflow code cleaner while making the dataset-inspection step more useful as a real pre-modeling statistical review rather than a basic summary page
+
 ### 060
 - Task
   Add persistent code structure rule

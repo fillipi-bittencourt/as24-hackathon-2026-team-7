@@ -10,7 +10,6 @@ import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
-from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 from src.ai.client import (
     build_payload,
@@ -27,6 +26,7 @@ from src.app_state import (
     remove_model_outputs,
     replace_state,
 )
+from src.data_overview import render_data_overview_tab
 from src.export_helpers import (
     build_column_selection_rows,
     build_complete_overview_export_df,
@@ -71,7 +71,7 @@ from src.setup_assistant import (
     build_setup_assistant_payload,
     resolve_ai_credentials,
 )
-from src.transforms import hill_saturation, log_saturation, transform_media
+from src.transforms import geometric_adstock, hill_saturation, log_saturation, transform_media
 from src.ui_content import (
     build_table_column_config,
     render_definitions_expander,
@@ -973,289 +973,6 @@ def render_data_tab() -> None:
                     st.dataframe(pd.DataFrame(prior_rows), width="stretch")
 
 
-def build_overview_target_summary(target_series: pd.Series) -> pd.DataFrame:
-    target_values = target_series.astype(float)
-    mean_value = float(target_values.mean()) if len(target_values) > 0 else 0.0
-    std_value = float(target_values.std(ddof=0)) if len(target_values) > 0 else 0.0
-    cv_value = (std_value / abs(mean_value)) if not math.isclose(mean_value, 0.0) else 0.0
-    return pd.DataFrame(
-        [
-            {"Metric": "Mean", "Value": round(mean_value, 2)},
-            {"Metric": "Median", "Value": round(float(target_values.median()), 2)},
-            {"Metric": "Std dev", "Value": round(std_value, 2)},
-            {"Metric": "Min", "Value": round(float(target_values.min()), 2)},
-            {"Metric": "Max", "Value": round(float(target_values.max()), 2)},
-            {"Metric": "P10", "Value": round(float(target_values.quantile(0.10)), 2)},
-            {"Metric": "P90", "Value": round(float(target_values.quantile(0.90)), 2)},
-            {"Metric": "Coefficient of variation", "Value": round(cv_value, 3)},
-        ]
-    )
-
-
-def build_overview_input_diagnostics(
-    *,
-    df: pd.DataFrame,
-    target_col: str,
-    channel_cols: list[str],
-    control_cols: list[str],
-) -> pd.DataFrame:
-    target_values = df[target_col].astype(float)
-    rows: list[dict[str, Any]] = []
-    for variable in [*channel_cols, *control_cols]:
-        series = df[variable].astype(float)
-        correlation = (
-            series.corr(target_values)
-            if series.nunique(dropna=True) >= 2 and target_values.nunique(dropna=True) >= 2
-            else None
-        )
-        rows.append(
-            {
-                "Variable": variable,
-                "Type": "Channel" if variable in channel_cols else "Control",
-                "Mean": round(float(series.mean()), 2),
-                "Median": round(float(series.median()), 2),
-                "Std dev": round(float(series.std(ddof=0)), 4),
-                "Min": round(float(series.min()), 2),
-                "Max": round(float(series.max()), 2),
-                "Zero rows (%)": round(float((series == 0).mean() * 100), 2),
-                "Negative rows (%)": round(float((series < 0).mean() * 100), 2),
-                "Corr to target": round(float(correlation), 3)
-                if correlation is not None and not pd.isna(correlation)
-                else None,
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def build_overview_correlation_pairs(
-    df: pd.DataFrame,
-    columns: list[str],
-) -> pd.DataFrame:
-    if len(columns) < 2:
-        return pd.DataFrame(
-            columns=["Left variable", "Right variable", "Correlation", "Abs correlation"]
-        )
-    corr_matrix = df[columns].corr()
-    rows: list[dict[str, Any]] = []
-    for idx, left in enumerate(columns):
-        for right in columns[idx + 1 :]:
-            value = corr_matrix.loc[left, right]
-            if pd.isna(value):
-                continue
-            rows.append(
-                {
-                    "Left variable": left,
-                    "Right variable": right,
-                    "Correlation": round(float(value), 3),
-                    "Abs correlation": round(abs(float(value)), 3),
-                }
-            )
-    if not rows:
-        return pd.DataFrame(
-            columns=["Left variable", "Right variable", "Correlation", "Abs correlation"]
-        )
-    return pd.DataFrame(rows).sort_values(
-        "Abs correlation",
-        ascending=False,
-    ).reset_index(drop=True)
-
-
-def build_overview_vif_df(
-    df: pd.DataFrame,
-    columns: list[str],
-) -> pd.DataFrame:
-    if len(columns) < 2:
-        return pd.DataFrame(columns=["Variable", "VIF"])
-
-    matrix = df[columns].astype(float).to_numpy()
-    valid_rows = np.isfinite(matrix).all(axis=1)
-    matrix = matrix[valid_rows]
-    if matrix.shape[0] <= len(columns):
-        return pd.DataFrame(columns=["Variable", "VIF"])
-
-    rows: list[dict[str, Any]] = []
-    for idx, variable in enumerate(columns):
-        try:
-            vif_value = float(variance_inflation_factor(matrix, idx))
-        except Exception:
-            vif_value = float("inf")
-        rows.append(
-            {
-                "Variable": variable,
-                "VIF": round(vif_value, 3) if np.isfinite(vif_value) else None,
-            }
-        )
-    return pd.DataFrame(rows).sort_values(
-        "VIF",
-        ascending=False,
-        na_position="last",
-    ).reset_index(drop=True)
-
-
-def build_overview_target_timeseries(
-    *,
-    df: pd.DataFrame,
-    date_col: str,
-    target_col: str,
-    granularity: str,
-) -> pd.DataFrame:
-    chart_df = df[[date_col, target_col]].copy()
-    chart_df[date_col] = pd.to_datetime(chart_df[date_col])
-    if granularity == "Original":
-        return chart_df.set_index(date_col)
-
-    if granularity == "Weekly":
-        grouped = (
-            chart_df.assign(period=chart_df[date_col].dt.to_period("W").dt.start_time)
-            .groupby("period", as_index=False)[target_col]
-            .sum()
-            .rename(columns={"period": date_col})
-        )
-        return grouped.set_index(date_col)
-
-    if granularity == "Monthly":
-        grouped = (
-            chart_df.assign(period=chart_df[date_col].dt.to_period("M").dt.to_timestamp())
-            .groupby("period", as_index=False)[target_col]
-            .sum()
-            .rename(columns={"period": date_col})
-        )
-        return grouped.set_index(date_col)
-
-    return chart_df.set_index(date_col)
-
-
-def render_data_overview_tab() -> None:
-    if not st.session_state.get("valid") or st.session_state.get("df") is None:
-        st.warning("Load and validate data in the Data tab first.")
-        return
-
-    df = st.session_state["df"]
-    date_col = st.session_state["date_col"]
-    target_col = st.session_state["target_col"]
-    channel_cols = st.session_state.get("channel_cols", [])
-    control_cols = st.session_state.get("control_cols", [])
-    input_cols = [*channel_cols, *control_cols]
-    target_values = df[target_col].astype(float)
-    grain = infer_grain(df[date_col]) or "unknown"
-
-    st.caption(
-        "Use this step to inspect the validated dataset before choosing transforms or fitting models. Focus on coverage, target behavior, input quality, and overlap across selected inputs."
-    )
-    st.info(
-        "Recommended reading order: check the top metrics first, then target behavior, then input diagnostics, and finally the multicollinearity section."
-    )
-
-    row_count = len(df)
-    rows_per_parameter = row_count / max(1, 1 + len(input_cols))
-    zero_target_pct = float((target_values == 0).mean() * 100)
-
-    top_col1, top_col2, top_col3, top_col4 = st.columns(4)
-    top_col1.metric("Rows", f"{row_count:,}")
-    top_col2.metric("Date grain", grain.title())
-    top_col3.metric("Channels", str(len(channel_cols)))
-    top_col4.metric("Controls", str(len(control_cols)))
-
-    top_col5, top_col6, top_col7, top_col8 = st.columns(4)
-    top_col5.metric(
-        "Date range",
-        f"{df[date_col].min().date()} to {df[date_col].max().date()}",
-    )
-    top_col6.metric("Rows per parameter", f"{rows_per_parameter:.1f}")
-    top_col7.metric("Target total", f"{float(target_values.sum()):,.0f}")
-    top_col8.metric("Zero-target rows", f"{zero_target_pct:.1f}%")
-
-    st.subheader("Selected modeling scope")
-    st.markdown(
-        f"""
-        **Target**: `{target_col}`
-
-        **Channels**: {", ".join(f"`{name}`" for name in channel_cols) if channel_cols else "None"}
-
-        **Controls**: {", ".join(f"`{name}`" for name in control_cols) if control_cols else "None"}
-        """
-    )
-
-    st.subheader("Target behavior")
-    st.caption(
-        "This shows the validated target trend. Large spikes, long flat periods, or many zero rows can make model interpretation harder."
-    )
-    if grain == "daily":
-        time_granularity_options = ["Original", "Weekly", "Monthly"]
-    elif grain == "weekly":
-        time_granularity_options = ["Original", "Monthly"]
-    else:
-        time_granularity_options = ["Original", "Monthly"]
-    time_granularity = st.selectbox(
-        "Target time-series granularity",
-        options=time_granularity_options,
-        help="Choose how the target trend should be aggregated in the chart.",
-    )
-    target_chart_df = build_overview_target_timeseries(
-        df=df,
-        date_col=date_col,
-        target_col=target_col,
-        granularity=time_granularity,
-    )
-    st.line_chart(target_chart_df, height=280)
-    st.dataframe(build_overview_target_summary(target_values), width="stretch")
-
-    st.subheader("Input diagnostics")
-    st.caption(
-        "These are the validated raw selected inputs before adstock or saturation. Look for low variation, many zeros, negatives, and weak or unstable relationships to the target."
-    )
-    diagnostics_df = build_overview_input_diagnostics(
-        df=df,
-        target_col=target_col,
-        channel_cols=channel_cols,
-        control_cols=control_cols,
-    )
-    st.dataframe(diagnostics_df, width="stretch")
-
-    st.subheader("Multicollinearity checks")
-    st.caption(
-        "Multicollinearity means selected inputs move together so strongly that the model struggles to separate their individual effects. This often makes coefficients unstable."
-    )
-    if len(input_cols) < 2:
-        st.info("Select at least two channel or control variables to evaluate multicollinearity.")
-        return
-
-    corr_pairs_df = build_overview_correlation_pairs(df, input_cols)
-    corr_matrix_df = df[input_cols].corr().round(3)
-    vif_df = build_overview_vif_df(df, input_cols)
-
-    high_corr_pairs = corr_pairs_df.loc[
-        corr_pairs_df["Abs correlation"] >= 0.8
-    ]
-    if not high_corr_pairs.empty:
-        st.warning(
-            "Some selected inputs are highly correlated. Compare Ridge and ElasticNet more carefully before trusting channel-level rankings."
-        )
-
-    high_vif_variables = vif_df.loc[
-        vif_df["VIF"].fillna(0.0) >= 10.0,
-        "Variable",
-    ].tolist()
-    if high_vif_variables:
-        st.warning(
-            "These inputs have very high VIF values: "
-            + ", ".join(f"`{name}`" for name in high_vif_variables)
-            + ". Expect unstable coefficient separation unless regularization and validation support the story."
-        )
-
-    st.markdown("**Strongest input correlations**")
-    st.dataframe(corr_pairs_df, width="stretch")
-
-    st.markdown("**Correlation matrix**")
-    st.dataframe(corr_matrix_df, width="stretch")
-
-    st.markdown("**VIF by selected input**")
-    st.caption(
-        "VIF estimates how much a variable's variance is inflated because it overlaps with the other selected inputs. Rough guide: above 5 deserves caution, above 10 is a strong warning sign."
-    )
-    st.dataframe(vif_df, width="stretch")
-
-
 def render_config_tab() -> None:
     if not st.session_state.get("valid"):
         st.warning("Load and validate data in the Data tab first.")
@@ -1653,18 +1370,21 @@ def render_fit_tab() -> None:
                     kwargs["sampler_config"] = st.session_state["pymc_sampler_config"]
                     st.info("PyMC can take longer than OLS and Ridge.")
                 result = model.fit(X, y, raw_spend=raw_spend, **kwargs)
-                try:
-                    holdout_meta = compute_holdout_diagnostics(
-                        builder=builder,
-                        X=X,
-                        y=y,
-                        raw_spend=raw_spend,
-                        model_kwargs=kwargs,
-                        date_values=date_values,
-                    )
-                except Exception as exc:
+                if model_name == "PyMC":
                     holdout_meta = None
-                    st.warning(f"{model_name} holdout validation could not be computed: {exc}")
+                else:
+                    try:
+                        holdout_meta = compute_holdout_diagnostics(
+                            builder=builder,
+                            X=X,
+                            y=y,
+                            raw_spend=raw_spend,
+                            model_kwargs=kwargs,
+                            date_values=date_values,
+                        )
+                    except Exception as exc:
+                        holdout_meta = None
+                        st.warning(f"{model_name} holdout validation could not be computed: {exc}")
                 bayesian_diagnostics = (
                     model.get_diagnostics()
                     if hasattr(model, "get_diagnostics")
@@ -1764,6 +1484,22 @@ def build_recommendation_lines(
     ]
 
 
+def build_gap_label(hidden_media_total: float) -> str:
+    return "Hidden + unexplained gap" if hidden_media_total > 0 else "Unexplained gap"
+
+
+def build_pre_saturation_series(
+    values: np.ndarray,
+    *,
+    adstock_kind: str,
+    theta: float,
+) -> np.ndarray:
+    series = np.asarray(values, dtype=np.float64)
+    if adstock_kind == "geometric":
+        return geometric_adstock(series, theta)
+    return series
+
+
 def render_results_tab() -> None:
     if not st.session_state.get("model_results"):
         st.info("Fit at least one model in the Fit tab to see results.")
@@ -1851,6 +1587,7 @@ def render_results_tab() -> None:
         for channel, value in display_channel_totals.items()
         if channel not in visible_channels
     )
+    gap_label = build_gap_label(hidden_media_total)
     filtered_unexplained_total = hidden_media_total + unexplained_total
     filtered_unexplained_share = (
         (filtered_unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
@@ -1927,7 +1664,7 @@ def render_results_tab() -> None:
         help="Displayed share of actual leads attributed to baseline and control effects.",
     )
     col4.metric(
-        "Unexplained gap",
+        gap_label,
         format_signed_number(filtered_unexplained_total),
         f"{filtered_unexplained_share:.1f}%",
         help="Remaining portion of actual leads not explained by the current visible media view and baseline. If some channels are hidden, this gap includes those hidden media contributions too.",
@@ -1952,7 +1689,7 @@ def render_results_tab() -> None:
     if show_baseline:
         summary_rows.append(
             {
-                "Segment": "Unexplained gap",
+                "Segment": gap_label,
                 "Value": abs(filtered_unexplained_total),
                 "SegmentOrder": 3,
             }
@@ -2009,6 +1746,8 @@ def render_results_tab() -> None:
     if fitted_at:
         st.caption(f"Model fitted on: {fitted_at}")
     holdout_meta = st.session_state["model_results_meta"].get(selected_model, {}).get("holdout")
+    if selected_model == "PyMC" and holdout_meta is None:
+        st.caption("Holdout validation is currently skipped for PyMC to keep Bayesian fits lighter during demo usage.")
     if holdout_meta is not None:
         st.subheader("Validation diagnostics")
         st.caption(
@@ -2325,13 +2064,19 @@ def render_results_tab() -> None:
                 carryover = "Indefinite carryover"
             else:
                 carryover = f"{round(-math.log(0.05) / -math.log(theta))} weeks"
+            pre_saturation_series = build_pre_saturation_series(
+                st.session_state["df"].loc[period_mask, channel].to_numpy(dtype=np.float64),
+                adstock_kind=st.session_state["adstock_type"].get(channel, "geometric"),
+                theta=float(theta),
+            )
+            avg_pre_saturation_input = float(pre_saturation_series.mean()) if len(pre_saturation_series) > 0 else 0.0
             avg_weekly_spend = float(visible_spend_totals[channel] / max(int(np.sum(period_mask)), 1))
             avg_weekly_contribution = float(visible_channel_totals[channel] / max(int(np.sum(period_mask)), 1))
             sat_kind = st.session_state["saturation_type"].get(channel, "log")
             sat_params = st.session_state["saturation_params"].get(channel, {"alpha": 1.0, "k": 0.0})
             saturation_status, saturation_note = compute_saturation_status(
                 sat_kind,
-                avg_weekly_spend,
+                avg_pre_saturation_input,
                 sat_params,
             )
             rows.append(
@@ -2339,6 +2084,7 @@ def render_results_tab() -> None:
                     "Channel": channel,
                     "Spend total": round(float(visible_spend_totals[channel]), 2),
                     "Average weekly spend": round(avg_weekly_spend, 2),
+                    "Average modeled input": round(avg_pre_saturation_input, 2),
                     "Contribution": round(float(visible_channel_totals[channel]), 2),
                     "Average weekly contribution": round(avg_weekly_contribution, 2),
                     "Contribution share (%)": round(
@@ -2360,6 +2106,8 @@ def render_results_tab() -> None:
         saturation_chart = build_saturation_curve_chart(
             st.session_state["df"].loc[period_mask].reset_index(drop=True),
             st.session_state["selected_visual_channels"],
+            st.session_state["adstock_type"],
+            st.session_state["adstock_params"],
             st.session_state["saturation_type"],
             st.session_state["saturation_params"],
         )
@@ -2376,7 +2124,7 @@ def render_results_tab() -> None:
             {"Metric": "Total leads", "Value": round(actual_total, 2)},
             {"Metric": "Media leads", "Value": round(visible_media_total, 2)},
             {"Metric": "Baseline leads", "Value": round(baseline_total, 2)},
-            {"Metric": "Unexplained gap", "Value": round(filtered_unexplained_total, 2)},
+            {"Metric": gap_label, "Value": round(filtered_unexplained_total, 2)},
             {"Metric": "R_squared", "Value": round(float(result.r_squared), 4)},
             {"Metric": "RMSE", "Value": round(float(result.rmse), 2)},
         ]
@@ -2514,6 +2262,7 @@ def render_ai_tab() -> None:
         for channel, value in display_channel_totals.items()
         if channel not in selected_visual_channels
     )
+    gap_label = build_gap_label(hidden_media_total)
     filtered_unexplained_total = hidden_media_total + unexplained_total
     filtered_unexplained_share = (
         (filtered_unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
@@ -2702,7 +2451,7 @@ def render_ai_tab() -> None:
                     {"Metric": "Total leads", "Value": round(actual_total, 2)},
                     {"Metric": "Media leads", "Value": round(media_total, 2)},
                     {"Metric": "Baseline leads", "Value": round(baseline_total, 2)},
-                    {"Metric": "Unexplained gap", "Value": round(filtered_unexplained_total, 2)},
+                    {"Metric": gap_label, "Value": round(filtered_unexplained_total, 2)},
                     {"Metric": "R_squared", "Value": round(float(result.r_squared), 4)},
                     {"Metric": "RMSE", "Value": round(float(result.rmse), 2)},
                 ]

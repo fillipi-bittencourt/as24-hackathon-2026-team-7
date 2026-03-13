@@ -95,8 +95,8 @@ def build_stacked_period_share_chart(
     title: str,
 ) -> alt.Chart:
     color_scale = alt.Scale(
-        domain=["Media leads", "Baseline leads", "Unexplained gap"],
-        range=["#4C78A8", "#72B7B2", "#F58518"],
+        domain=["Media leads", "Baseline leads", "Unexplained gap", "Hidden + unexplained gap"],
+        range=["#4C78A8", "#72B7B2", "#F58518", "#F58518"],
     )
     base = alt.Chart(df).encode(
         x=alt.X("Period:N", title=None),

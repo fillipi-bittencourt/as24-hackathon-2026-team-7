@@ -21,7 +21,8 @@ Use this checklist to verify the current app, not to rebuild it from scratch.
 - [ ] if using the manual lightweight path, install `mmm/requirements-mvp.txt`
 - [ ] run `mmm/run_app.sh`
 - [ ] confirm the app opens without crashing
-- [ ] confirm the sidebar step menu shows `Data`, `Config`, `Priors`, `Info`, `Fit`, `Results`, `AI`
+- [ ] confirm the sidebar step menu shows `Data`, `Overview`, `Config`, `Priors`, `Fit`, `Results`, `AI`
+- [ ] confirm the separate sidebar `Guide` section opens the MMM explainer
 
 ---
 
@@ -30,6 +31,7 @@ Use this checklist to verify the current app, not to rebuild it from scratch.
 - [ ] load `mmm/data/mmm_demo_sample.csv`
 - [ ] validation passes with no blocking data errors
 - [ ] data preview is visible and date range is correct
+- [ ] `Overview` renders dataset diagnostics, target chart, and multicollinearity checks
 - [ ] default transforms are `Geometric` and `Log`
 - [ ] click `Apply transforms` successfully
 

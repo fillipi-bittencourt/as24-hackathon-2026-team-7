@@ -5,12 +5,18 @@
 | Step | Purpose | Enabled when |
 |------|---------|--------------|
 | Data | Load, preview, validate input CSV | Always |
+| Overview | Dataset diagnostics, target behavior, and multicollinearity checks | Data valid |
 | Config | Transform params + regularization hyperparams | Data valid |
 | Priors | Bayesian prior settings and sampler controls | Data valid |
-| Info | MMM explainer for models, transforms, and output interpretation | Always |
 | Fit | Select models, run fit, view fit status | Transforms applied |
 | Results | Model comparison, validation, three decisions, channel insights, quick insights | ≥1 model fitted |
 | AI | Analysis generation, provider setup, and AI exports | ≥1 model fitted |
+
+Separate from the numbered workflow:
+
+| Section | Purpose |
+|---------|---------|
+| Guide | MMM explainer for models, transforms, and output interpretation |
 
 The sidebar step menu is always visible. Navigation uses a vertical list of sidebar buttons. Gating is done by showing a message inside each section using `if/else`.
 
@@ -19,12 +25,13 @@ The sidebar step menu is always visible. Navigation uses a vertical list of side
 ## User Journey
 
 1. **Data** — Upload CSV or select from `data/`; select date_col, target_col, **channels to include** (multiselect — add/remove channels as needed); validate; preview. Channel selection can be edited after load (deselect to remove a channel); changing it re-validates and resets transforms and fits.
-2. **Config** — Per-channel: select **adstock type** (Geometric / None) and **saturation type** (Log / Hill / None); set theta (if geometric), alpha/k (if hill); set regularization alpha and l1_ratio; click "Apply transforms". Recommended defaults: **Geometric + Log**
-3. **Priors** — Choose the PyMC prior settings and sampler controls before fitting the Bayesian model
-4. **Info** — Review model, transform, and interpretation guidance before fitting if needed
+2. **Overview** — Review validated dataset quality, target behavior, input diagnostics, and multicollinearity before choosing transforms
+3. **Config** — Per-channel: select **adstock type** (Geometric / None) and **saturation type** (Log / Hill / None); set theta (if geometric), alpha/k (if hill); set regularization alpha and l1_ratio; click "Apply transforms". Recommended defaults: **Geometric + Log**
+4. **Priors** — Choose the PyMC prior settings and sampler controls before fitting the Bayesian model
 5. **Fit** — Select models and fit them one by one or all at once; spinner and status line shown per model
 6. **Results** — Model selector at top; display period selector; variable filter; comparison tables; validation diagnostics; three decision sections; exports; expandable Channel Insights; expandable Quick Insights
 7. **AI** — Provider setup; analysis depth selector; optional multi-model context; generated analysis; AI exports
+8. **Guide** — Review model, transform, and interpretation guidance at any time from the separate sidebar help section
 
 ---
 

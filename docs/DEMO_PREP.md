@@ -20,20 +20,21 @@ Use this as the default live path unless you have already tested the full advanc
 
 1. Start with `mmm/data/mmm_demo_sample.csv`
 2. Use the sidebar step menu and confirm the file loads cleanly in `Data`
-3. Optionally open `Info` if the audience needs the MMM explainer
-4. Keep the default transforms in `Config`
-5. Fit `OLS`
-6. Fit `Ridge`
-7. Open `Results`
-8. Use `All data`
-9. Show the four top metrics
-10. Show the holdout validation view
-11. Show the channel breakdown table
-12. Open `Channel Insights` and show the stacked time chart and saturation curves
-13. Open `AI`
-14. Select `In-depth`
-15. Keep `Include all fitted models in the analysis context` enabled
-16. Generate analysis
+3. Open `Overview` and briefly show the health tags, target trend, and multicollinearity checks
+4. Optionally open `Guide` if the audience needs the MMM explainer
+5. Keep the default transforms in `Config`
+6. Fit `OLS`
+7. Fit `Ridge`
+8. Open `Results`
+9. Use `All data`
+10. Show the four top metrics
+11. Show the holdout validation view
+12. Show the channel breakdown table
+13. Open `Channel Insights` and show the stacked time chart and saturation curves
+14. Open `AI`
+15. Select `In-depth`
+16. Keep `Include all fitted models in the analysis context` enabled
+17. Generate analysis
 
 Avoid fitting `PyMC` live unless you already tested that exact machine and dataset.
 
@@ -65,6 +66,7 @@ Avoid fitting `PyMC` live unless you already tested that exact machine and datas
 ## Recommended narration
 
 - `Data` proves the file is valid and ready for modeling
+- `Overview` proves the data is statistically usable before modeling starts
 - `Config` shows the assumptions are simple and controllable
 - `Fit` shows that two methods agree on the broad story
 - `Results` translates the model into leads, efficiency, and action

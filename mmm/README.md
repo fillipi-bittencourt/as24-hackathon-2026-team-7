@@ -12,7 +12,8 @@ Runnable Streamlit app for hackathon delivery. The app is designed to answer thr
 
 The checked-in app is live and usable.
 
-- navigation: sidebar step menu for `Data`, `Config`, `Priors`, `Info`, `Fit`, `Results`, `AI`
+- navigation: sidebar step menu for `Data`, `Overview`, `Config`, `Priors`, `Fit`, `Results`, `AI`
+- reference help: separate `Guide` section in the sidebar
 - models: `OLS`, `Ridge`, `Lasso`, `ElasticNet`, `PyMC`
 - results support: model comparison, lead decomposition, channel filtering, period filtering, exports
 - ai support: short or in-depth analysis, multi-model context option, CSV and PDF export
@@ -36,12 +37,13 @@ cd as24-hackathon-2026-team-7/mmm
 ## Recommended demo path
 
 1. Load `data/mmm_demo_sample.csv`
-2. Use `Info` if the audience needs a quick explanation of models and MMM concepts
-3. Keep the default transforms `Geometric + Log`
-4. Fit `OLS` and `Ridge`
-5. Open `Results` and use `All data`
-6. Show the top metrics, validation diagnostics, channel table, and stacked time chart
-7. Open `AI`, choose `In-depth`, keep multi-model context enabled, and generate analysis
+2. Use `Overview` to show dataset quality, target behavior, and multicollinearity checks
+3. Use `Guide` if the audience needs a quick explanation of models and MMM concepts
+4. Keep the default transforms `Geometric + Log`
+5. Fit `OLS` and `Ridge`
+6. Open `Results` and use `All data`
+7. Show the top metrics, validation diagnostics, channel table, and stacked time chart
+8. Open `AI`, choose `In-depth`, keep multi-model context enabled, and generate analysis
 
 If time or latency is tight, skip `PyMC` in the live run and use `OLS` plus `Ridge`.
 
