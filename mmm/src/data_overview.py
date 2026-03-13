@@ -8,7 +8,14 @@ import pandas as pd
 import streamlit as st
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
-from src.results_helpers import infer_grain
+from src.results_helpers import (
+    aggregate_time_series_df,
+    get_default_time_granularity,
+    get_time_granularity_options,
+    infer_grain,
+)
+
+MAX_VIF_INPUTS = 12
 
 
 def render_data_overview_tab() -> None:
@@ -35,7 +42,8 @@ def render_data_overview_tab() -> None:
     row_count = len(df)
     rows_per_parameter = row_count / max(1, 1 + len(input_cols))
     zero_target_pct = float((target_values == 0).mean() * 100)
-    max_abs_corr, max_vif = compute_overview_risk_signals(df, input_cols)
+    max_abs_corr = compute_max_abs_correlation(df, input_cols)
+    coverage_risk = classify_input_coverage_risk(df, input_cols)
 
     top_col1, top_col2, top_col3, top_col4 = st.columns(4)
     top_col1.metric("Rows", f"{row_count:,}")
@@ -64,7 +72,7 @@ def render_data_overview_tab() -> None:
         f"**Correlation risk**  \n`{classify_correlation_risk(max_abs_corr)}`"
     )
     tag_col4.markdown(
-        f"**VIF risk**  \n`{classify_vif_risk(max_vif)}`"
+        f"**Input coverage**  \n`{coverage_risk}`"
     )
 
     st.subheader("Selected modeling scope")
@@ -82,15 +90,15 @@ def render_data_overview_tab() -> None:
     st.caption(
         "This shows the validated target trend. Large spikes, long flat periods, or many zero rows can make model interpretation harder."
     )
-    if grain == "daily":
-        time_granularity_options = ["Original", "Weekly", "Monthly"]
-    elif grain == "weekly":
-        time_granularity_options = ["Original", "Monthly"]
-    else:
-        time_granularity_options = ["Original", "Monthly"]
+    time_granularity_options = get_time_granularity_options(df[date_col])
+    default_granularity = get_default_time_granularity(df[date_col])
+    previous_granularity = st.session_state.get("overview_target_granularity", default_granularity)
     time_granularity = st.selectbox(
         "Target time-series granularity",
         options=time_granularity_options,
+        index=time_granularity_options.index(previous_granularity)
+        if previous_granularity in time_granularity_options
+        else time_granularity_options.index(default_granularity),
         help="Choose how the target trend should be aggregated in the chart.",
         key="overview_target_granularity",
     )
@@ -129,22 +137,41 @@ def render_data_overview_tab() -> None:
 
     st.subheader("Multicollinearity checks")
     st.caption(
-        "These are pre-model overlap checks on the validated raw selected inputs. Multicollinearity means inputs move together so strongly that the fitted model struggles to separate their individual effects."
+        "These are pre-model overlap checks on the validated raw selected inputs. They can be expensive on wide datasets, so advanced diagnostics run only when you ask for them."
     )
     if len(input_cols) < 2:
         st.info("Select at least two channel or control variables to evaluate multicollinearity.")
         return
 
-    corr_pairs_df = build_overview_correlation_pairs(df, input_cols)
-    corr_matrix_df = df[input_cols].corr().round(3)
-    vif_df = build_overview_vif_df(df, input_cols)
+    run_advanced = st.checkbox(
+        "Run advanced multicollinearity diagnostics",
+        value=False,
+        key="overview_run_multicollinearity",
+        help="Computes strongest overlap pairs and, for smaller input sets, VIF. Leave this off for a faster first read.",
+    )
+    if not run_advanced:
+        st.info(
+            "Advanced multicollinearity diagnostics are skipped by default for speed. Use the correlation risk tag above for a quick signal, or enable this check when you need deeper setup review."
+        )
+        return
 
+    corr_pairs_df = build_overview_correlation_pairs(df, input_cols)
     high_corr_pairs = corr_pairs_df.loc[corr_pairs_df["Abs correlation"] >= 0.8]
     if not high_corr_pairs.empty:
         st.warning(
             "Some selected inputs are highly correlated. Compare Ridge and ElasticNet more carefully before trusting channel-level rankings."
         )
 
+    st.markdown("**Strongest input correlations**")
+    st.dataframe(corr_pairs_df.head(25), width="stretch")
+
+    if len(input_cols) > MAX_VIF_INPUTS:
+        st.info(
+            f"VIF is skipped because {len(input_cols)} inputs are selected. Reduce the selected inputs to {MAX_VIF_INPUTS} or fewer if you want a deeper VIF check."
+        )
+        return
+
+    vif_df = build_overview_vif_df(df, input_cols)
     high_vif_variables = vif_df.loc[
         vif_df["VIF"].fillna(0.0) >= 10.0,
         "Variable",
@@ -155,12 +182,6 @@ def render_data_overview_tab() -> None:
             + ", ".join(f"`{name}`" for name in high_vif_variables)
             + ". Expect unstable coefficient separation unless regularization and validation support the story."
         )
-
-    st.markdown("**Strongest input correlations**")
-    st.dataframe(corr_pairs_df, width="stretch")
-
-    st.markdown("**Correlation matrix**")
-    st.dataframe(corr_matrix_df, width="stretch")
 
     st.markdown("**VIF by selected input**")
     st.caption(
@@ -327,47 +348,39 @@ def build_overview_target_timeseries(
     target_col: str,
     granularity: str,
 ) -> pd.DataFrame:
-    chart_df = df[[date_col, target_col]].copy()
-    chart_df[date_col] = pd.to_datetime(chart_df[date_col])
-    if granularity == "Original":
-        return chart_df.set_index(date_col)
-
-    if granularity == "Weekly":
-        grouped = (
-            chart_df.assign(period=chart_df[date_col].dt.to_period("W").dt.start_time)
-            .groupby("period", as_index=False)[target_col]
-            .sum()
-            .rename(columns={"period": date_col})
-        )
-        return grouped.set_index(date_col)
-
-    if granularity == "Monthly":
-        grouped = (
-            chart_df.assign(period=chart_df[date_col].dt.to_period("M").dt.to_timestamp())
-            .groupby("period", as_index=False)[target_col]
-            .sum()
-            .rename(columns={"period": date_col})
-        )
-        return grouped.set_index(date_col)
-
-    return chart_df.set_index(date_col)
+    return aggregate_time_series_df(
+        df[[date_col, target_col]].copy(),
+        date_col=date_col,
+        value_columns=[target_col],
+        granularity=granularity,
+    ).set_index(date_col)
 
 
-def compute_overview_risk_signals(
+def compute_max_abs_correlation(
     df: pd.DataFrame,
     input_cols: list[str],
-) -> tuple[float, float]:
+) -> float:
     max_abs_corr = 0.0
-    max_vif = 0.0
     if len(input_cols) >= 2:
         corr_matrix = df[input_cols].corr().abs()
         if not corr_matrix.empty:
             upper_triangle = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
             max_abs_corr = float(upper_triangle.max().max()) if not upper_triangle.isna().all().all() else 0.0
-        vif_df = build_overview_vif_df(df, input_cols)
-        if not vif_df.empty:
-            max_vif = float(vif_df["VIF"].fillna(0.0).max())
-    return max_abs_corr, max_vif
+    return max_abs_corr
+
+
+def classify_input_coverage_risk(
+    df: pd.DataFrame,
+    input_cols: list[str],
+) -> str:
+    if not input_cols:
+        return "N/A"
+    min_non_zero_pct = min(float((df[column].astype(float) > 0).mean() * 100) for column in input_cols)
+    if min_non_zero_pct < 20.0:
+        return "HIGH"
+    if min_non_zero_pct < 50.0:
+        return "MEDIUM"
+    return "LOW"
 
 
 def classify_dataset_health(rows_per_parameter: float, zero_target_pct: float) -> str:

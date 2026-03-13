@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import numpy as np
-import statsmodels.api as sm
 import streamlit as st
 
-from .base import ModelResult, build_model_result
+from .base import (
+    ModelResult,
+    build_model_result,
+    compute_r_squared_and_rmse,
+    fit_constrained_standardized_linear_model,
+)
 
 
 class OLSModel:
     def __init__(self) -> None:
-        self._result = None
+        self._intercept: float | None = None
+        self._coefficients: np.ndarray | None = None
 
     def fit(
         self,
@@ -25,38 +30,49 @@ class OLSModel:
         if X_values.ndim == 1:
             X_values = X_values.reshape(-1, 1)
 
-        X_with_const = sm.add_constant(X_values, has_constant="add")
-        if len(y_values) < 3 * X_with_const.shape[1]:
+        n_controls = max(0, X_values.shape[1] - len(channel_names))
+        if len(y_values) < 3 * (1 + len(channel_names) + n_controls):
             st.warning(
-                f"Only {len(y_values)} rows for {X_with_const.shape[1]} parameters — model may be overfit. Add more data for reliable results."
+                f"Only {len(y_values)} rows for {1 + len(channel_names) + n_controls} parameters — model may be overfit. Add more data for reliable results."
             )
 
-        self._result = sm.OLS(y_values, X_with_const).fit()
         n_channels = len(channel_names)
-        y_pred = np.asarray(self._result.predict(X_with_const), dtype=np.float64)
+        constrained_fit = fit_constrained_standardized_linear_model(
+            X_values,
+            y_values,
+            n_channels=n_channels,
+            alpha=0.0,
+            l1_ratio=0.0,
+        )
+        self._intercept = constrained_fit.intercept
+        self._coefficients = constrained_fit.coefficients
+        y_pred = constrained_fit.y_pred
+        r_squared, rmse = compute_r_squared_and_rmse(y_values, y_pred)
         coefficients = {
-            ch: float(self._result.params[1 + idx]) for idx, ch in enumerate(channel_names)
+            ch: float(self._coefficients[idx]) for idx, ch in enumerate(channel_names)
         }
 
         return build_model_result(
             model_name="OLS",
             channel_names=channel_names,
             coefficients=coefficients,
-            intercept=float(self._result.params[0]),
+            intercept=float(self._intercept),
             raw_spend=raw_spend,
             X=X_values[:, :n_channels],
             y_pred=y_pred,
-            r_squared=float(self._result.rsquared),
-            rmse=float(np.sqrt(np.mean(self._result.resid**2))),
+            r_squared=r_squared,
+            rmse=rmse,
         )
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        if self._result is None:
+        if self._intercept is None or self._coefficients is None:
             raise ValueError("Model has not been fitted")
 
         X_values = np.asarray(X, dtype=np.float64)
         if X_values.ndim == 1:
             X_values = X_values.reshape(-1, 1)
 
-        X_with_const = sm.add_constant(X_values, has_constant="add")
-        return np.asarray(self._result.predict(X_with_const), dtype=np.float64)
+        return np.asarray(
+            float(self._intercept) + (X_values @ np.asarray(self._coefficients, dtype=np.float64)),
+            dtype=np.float64,
+        )

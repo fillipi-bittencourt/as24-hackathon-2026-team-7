@@ -52,9 +52,9 @@ TABLE_COLUMN_HELP_TEXT = {
     "Saturation status": "Whether the channel looks under-saturated, near saturation, or over-saturated.",
     "Saturation note": "Short interpretation of the current saturation status.",
     "Predicted leads": "Total leads predicted by the fitted model in the selected view.",
-    "Media contribution": "Sum of the raw modeled channel contributions in the selected view.",
-    "Baseline contribution": "Raw modeled baseline contribution from the intercept and control effects.",
-    "Residual gap": "Actual leads minus predicted leads in the selected view. Positive means under-prediction and negative means over-prediction.",
+    "Media contribution": "Sum of the bounded business-facing channel contributions in the selected view.",
+    "Baseline contribution": "Bounded non-media contribution shown in the business-facing decomposition.",
+    "Residual gap": "Positive unexplained lead volume left after the business-facing decomposition is applied.",
     "What it does": "Plain-language description of what the model or concept does.",
     "Best use case": "When this model or concept is most useful.",
     "Strength": "Main reason to prefer this model or concept.",
@@ -189,7 +189,7 @@ def render_info_tab() -> None:
 
             **Residual gap**
 
-            The difference between actual leads and predicted leads after all modeled channel and baseline effects are counted.
+            The remaining lead volume not explained by the business-facing decomposition after positive media and baseline components are assigned.
 
             **CPL**
 
@@ -523,11 +523,11 @@ def render_info_tab() -> None:
             """
             Use this to explain the result in business language.
 
-            - `Media contribution` is the sum of the raw modeled channel effects
-            - `Baseline contribution` is the raw non-media part of the fitted model
-            - `Residual gap` is `actual - predicted`
+            - `Media contribution` is the bounded business-facing channel total
+            - `Baseline contribution` is the bounded non-media part of the business-facing decomposition
+            - `Residual gap` is the remaining unexplained lead volume
 
-            A large residual gap means the fitted model is missing meaningful movement in the target and should be treated more cautiously.
+            A large unexplained gap means the fitted model is still missing meaningful movement in the target and should be treated more cautiously.
             """
         )
     with st.expander("Spend share vs contribution share"):

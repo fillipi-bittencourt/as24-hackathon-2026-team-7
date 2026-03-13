@@ -68,6 +68,13 @@ Return JSON with this exact top-level structure
 Rules
 - Use only columns provided in the payload.
 - Use only the channel names provided in the payload.
+- Coverage tags in the payload mean:
+  - `sparse` = low observed coverage and should be excluded from the recommended final selection
+  - `patchy` = usable but intermittent and should generally be kept, not dropped defensively
+  - `healthy` = strong enough coverage and should be kept
+- Do not aggressively prune plausible media or control variables when their coverage tag is `patchy` or `healthy`.
+- Prefer broad inclusion over narrow pruning when the evidence is mixed but coverage is still `patchy` or `healthy`.
+- Use `channels` and `controls` as broad recommended sets, not as a minimal short list.
 - Prefer HalfNormal for channels unless the profile suggests a weak or uncertain effect.
 - Keep theta within 0.1 to 0.9.
 - Keep alpha within 0.1 to 5.0.
@@ -75,4 +82,5 @@ Rules
 - Mention missing values, duplicated behavior, flat spend, suspicious negatives, or likely data completion needs when relevant.
 - In executive_summary and reasoning fields, call out statistical setup risks when they are visible in the payload such as low row count, weak variation, noisy inputs, likely overfitting risk, or weak signal.
 - When the evidence is weak, recommend conservative transforms, moderate regularization, and cautious prior scales rather than aggressive tuning.
+- Be conservative in transforms and priors, not in feature inclusion when coverage is acceptable.
 - Do not describe a setup as robust or reliable unless the payload supports that claim.

@@ -7,6 +7,10 @@ import altair as alt
 import numpy as np
 import pandas as pd
 
+LOW_SPEND_QUANTILE = 0.2
+MIN_BASELINE_SHARE = 0.1
+MAX_BASELINE_SHARE = 0.6
+
 
 def infer_grain(date_series: pd.Series) -> str | None:
     ordered = date_series.sort_values().dropna()
@@ -20,7 +24,74 @@ def infer_grain(date_series: pd.Series) -> str | None:
         return "daily"
     if 6 <= median_days <= 8:
         return "weekly"
+    if 28 <= median_days <= 31:
+        return "monthly"
     return None
+
+
+def get_time_granularity_options(date_series: pd.Series) -> list[str]:
+    grain = infer_grain(pd.to_datetime(date_series))
+    if grain == "daily":
+        return ["Daily", "Weekly", "Monthly"]
+    if grain == "weekly":
+        return ["Weekly", "Monthly"]
+    return ["Monthly"]
+
+
+def get_default_time_granularity(date_series: pd.Series) -> str:
+    options = get_time_granularity_options(date_series)
+    if "Weekly" in options:
+        return "Weekly"
+    return options[0]
+
+
+def aggregate_time_series_df(
+    df: pd.DataFrame,
+    *,
+    date_col: str,
+    value_columns: list[str],
+    granularity: str,
+) -> pd.DataFrame:
+    chart_df = df[[date_col, *value_columns]].copy()
+    chart_df[date_col] = pd.to_datetime(chart_df[date_col])
+    if granularity == "Daily":
+        return chart_df.sort_values(date_col).reset_index(drop=True)
+    if granularity == "Weekly":
+        grouped = (
+            chart_df.assign(period=chart_df[date_col].dt.to_period("W").dt.start_time)
+            .groupby("period", as_index=False)[value_columns]
+            .sum()
+            .rename(columns={"period": date_col})
+        )
+        return grouped.sort_values(date_col).reset_index(drop=True)
+    if granularity == "Monthly":
+        grouped = (
+            chart_df.assign(period=chart_df[date_col].dt.to_period("M").dt.to_timestamp())
+            .groupby("period", as_index=False)[value_columns]
+            .sum()
+            .rename(columns={"period": date_col})
+        )
+        return grouped.sort_values(date_col).reset_index(drop=True)
+    return chart_df.sort_values(date_col).reset_index(drop=True)
+
+
+def infer_granularity_scale_factor(date_series: pd.Series, granularity: str) -> float:
+    dated = pd.to_datetime(date_series).dropna().sort_values()
+    if dated.empty:
+        return 1.0
+    source_grain = infer_grain(dated) or "daily"
+    if granularity == "Daily" or source_grain == granularity.lower():
+        return 1.0
+    grouped = aggregate_time_series_df(
+        pd.DataFrame({"date": dated, "value": np.ones(len(dated), dtype=np.float64)}),
+        date_col="date",
+        value_columns=["value"],
+        granularity=granularity,
+    )
+    if grouped.empty:
+        return 1.0
+    typical_bucket_size = float(grouped["value"].median())
+    return max(1.0, typical_bucket_size)
 
 
 def format_number(value: float) -> str:
@@ -31,8 +102,16 @@ def format_currency(value: float) -> str:
     return f"EUR {value:,.0f}"
 
 
+def is_rankable_cpl(value: float | None) -> bool:
+    if value is None:
+        return False
+    if math.isnan(value) or math.isinf(value):
+        return False
+    return value > 0
+
+
 def format_cpl(value: float | None) -> str:
-    if value is None or math.isinf(value) or math.isnan(value):
+    if not is_rankable_cpl(value):
         return "N/A"
     return f"EUR {value:,.2f} per lead"
 
@@ -42,7 +121,11 @@ def format_signed_number(value: float) -> str:
 
 
 def pick_best_channel(cpl_map: dict[str, float]) -> tuple[str | None, float | None]:
-    finite = {name: value for name, value in cpl_map.items() if not math.isinf(value)}
+    finite = {
+        name: value
+        for name, value in cpl_map.items()
+        if is_rankable_cpl(value)
+    }
     if not finite:
         return None, None
     name, value = min(finite.items(), key=lambda item: item[1])
@@ -50,7 +133,11 @@ def pick_best_channel(cpl_map: dict[str, float]) -> tuple[str | None, float | No
 
 
 def pick_worst_channel(cpl_map: dict[str, float]) -> tuple[str | None, float | None]:
-    finite = {name: value for name, value in cpl_map.items() if not math.isinf(value)}
+    finite = {
+        name: value
+        for name, value in cpl_map.items()
+        if is_rankable_cpl(value)
+    }
     if not finite:
         return None, None
     name, value = max(finite.items(), key=lambda item: item[1])
@@ -369,11 +456,13 @@ def compute_display_attribution(
     result: Any,
     actual_values: np.ndarray,
     row_mask: np.ndarray | None = None,
+    total_spend_series: np.ndarray | None = None,
 ) -> tuple[dict[str, float], float, float]:
     channel_vectors, baseline_vector, unexplained_vector = compute_display_attribution_vectors(
         result,
         actual_values,
         row_mask=row_mask,
+        total_spend_series=total_spend_series,
     )
     display_channel_totals = {
         channel: float(np.sum(values))
@@ -392,10 +481,15 @@ def compute_display_attribution_vectors(
     result: Any,
     actual_values: np.ndarray,
     row_mask: np.ndarray | None = None,
+    total_spend_series: np.ndarray | None = None,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
     actual_array = np.asarray(actual_values, dtype=np.float64)
     if row_mask is None:
         row_mask = np.ones_like(result.baseline, dtype=bool)
+    structural_baseline_share = estimate_structural_baseline_share(
+        actual_array,
+        total_spend_series,
+    )
 
     selected_actuals = np.asarray(actual_array[row_mask], dtype=np.float64)
     if selected_actuals.size == 0:
@@ -420,23 +514,57 @@ def compute_display_attribution_vectors(
             for channel in result.channel_names
         }
         raw_baseline_value = max(float(result.baseline[idx]), 0.0)
-        raw_explained_value = sum(raw_channel_values.values()) + raw_baseline_value
+        baseline_floor = actual_value * structural_baseline_share
+        bounded_baseline_value = min(
+            actual_value,
+            max(raw_baseline_value, baseline_floor),
+        )
+        remaining_actual = max(actual_value - bounded_baseline_value, 0.0)
+        raw_media_total = sum(raw_channel_values.values())
 
-        if math.isclose(raw_explained_value, 0.0):
-            unexplained_vector[pos] = actual_value
-            continue
-
-        scale_factor = min(1.0, actual_value / raw_explained_value)
-        explained_total = 0.0
-        for channel, value in raw_channel_values.items():
-            scaled_value = value * scale_factor
-            channel_vectors[channel][pos] = scaled_value
-            explained_total += scaled_value
-        baseline_vector[pos] = raw_baseline_value * scale_factor
-        explained_total += baseline_vector[pos]
-        unexplained_vector[pos] = max(actual_value - explained_total, 0.0)
+        explained_media_total = 0.0
+        if not math.isclose(raw_media_total, 0.0):
+            media_scale_factor = min(1.0, remaining_actual / raw_media_total)
+            for channel, value in raw_channel_values.items():
+                scaled_value = value * media_scale_factor
+                channel_vectors[channel][pos] = scaled_value
+                explained_media_total += scaled_value
+        baseline_vector[pos] = bounded_baseline_value
+        unexplained_vector[pos] = max(actual_value - baseline_vector[pos] - explained_media_total, 0.0)
 
     return channel_vectors, baseline_vector, unexplained_vector
+
+
+def estimate_structural_baseline_share(
+    actual_values: np.ndarray,
+    total_spend_series: np.ndarray | None,
+) -> float:
+    actual_array = np.asarray(actual_values, dtype=np.float64)
+    if total_spend_series is None:
+        return MIN_BASELINE_SHARE
+
+    spend_array = np.asarray(total_spend_series, dtype=np.float64)
+    valid_mask = np.isfinite(actual_array) & np.isfinite(spend_array) & (actual_array >= 0)
+    if not np.any(valid_mask):
+        return MIN_BASELINE_SHARE
+
+    valid_actual = actual_array[valid_mask]
+    valid_spend = spend_array[valid_mask]
+    if valid_actual.size == 0:
+        return MIN_BASELINE_SHARE
+
+    overall_median_actual = float(np.median(valid_actual))
+    if math.isclose(overall_median_actual, 0.0):
+        return MIN_BASELINE_SHARE
+
+    spend_threshold = float(np.quantile(valid_spend, LOW_SPEND_QUANTILE))
+    low_spend_mask = valid_spend <= spend_threshold
+    if not np.any(low_spend_mask):
+        return MIN_BASELINE_SHARE
+
+    low_spend_actual = valid_actual[low_spend_mask]
+    anchor_share = float(np.median(low_spend_actual)) / overall_median_actual
+    return float(np.clip(anchor_share, MIN_BASELINE_SHARE, MAX_BASELINE_SHARE))
 
 
 def build_period_mask(

@@ -11,6 +11,46 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 072
+- Task
+  Harden the app launcher
+- Change
+  Rebuilt `mmm/run_app.sh` into an idempotent install-and-run launcher that verifies required files, selects a Python 3.9+ interpreter, creates `.venv` when needed, fingerprints `requirements.txt` plus `.python-version` so dependency reinstalls happen only when the environment definition changes, validates imports after install, supports `INSTALL_ONLY=1` for safe setup checks, and launches Streamlit through the venv Python for interpreter consistency
+- Files
+  `mmm/run_app.sh`, `CHANGELOG.md`
+- Reason
+  Make the day-to-day bootstrap path reliable so the launcher actually installs once when necessary, skips unnecessary reinstall work afterward, and always runs the app with the same environment it just verified
+
+### 071
+- Task
+  Apply MMM sign constraints to the frequentist models
+- Change
+  Replaced the frequentist media-coefficient fitting path with constrained optimization that keeps media coefficients non-negative while leaving the intercept and control coefficients unconstrained, added regression tests to prove the new sign behavior and negative-control flexibility, and rechecked the live app flow to confirm the Results page still renders cleanly after the fitting change
+- Files
+  `mmm/src/models/base.py`, `mmm/src/models/ols.py`, `mmm/src/models/ridge.py`, `mmm/src/models/lasso.py`, `mmm/src/models/elasticnet.py`, `mmm/tests/test_models_smoke.py`, `CHANGELOG.md`
+- Reason
+  Bring the frequentist models in line with common MMM best practice so media effects stay at or above neutral while non-media controls can still move either direction when the data supports it
+
+### 070
+- Task
+  Fix remaining statistical implementation bugs
+- Change
+  Changed duplicate-date aggregation so selected target and media columns are summed while selected controls are averaged instead of blindly summing every numeric field, replaced the PyMC percentile interval logic with 94 percent HDI calculations for coefficients and CPL draws, and added regression tests covering duplicate-date control aggregation and the tighter PyMC interval invariants
+- Files
+  `mmm/src/utils.py`, `mmm/src/models/pymc_model.py`, `mmm/tests/test_models_smoke.py`, `CHANGELOG.md`
+- Reason
+  Remove two real statistical bugs that could distort controls after duplicate-date cleanup or overstate Bayesian interval semantics, while locking the fixes in with repeatable automated tests
+
+### 069
+- Task
+  Close remaining CPL ranking and cohesion issues
+- Change
+  Treated non-positive CPL values as non-rankable across the shared helpers, AI payload ranking, and Results CPL chart, aligned the top summary and visible-view ranking scopes so the header uses all-channel CPL while recommendations and quick insights stay tied to the current visible-channel view, and disambiguated duplicate-looking saved session labels by appending the session id when metadata labels collide
+- Files
+  `mmm/app.py`, `mmm/src/results_helpers.py`, `mmm/src/ai/client.py`, `mmm/tests/test_models_smoke.py`, `CHANGELOG.md`
+- Reason
+  Prevent negative-contribution channels from being surfaced as “best” performers, keep summary scopes coherent, and remove a confusing saved-session UX edge case uncovered during the review and browser test passes
+
 ### 068
 - Task
   Make user-facing outputs consistent with the faithful interpretation layer

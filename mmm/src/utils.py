@@ -77,6 +77,8 @@ def convert_mmm_data(
             aggregated_valid_rows = _aggregate_rows_by_date(
                 converted.loc[valid_date_rows].copy(),
                 date_col,
+                additive_cols={target_col, *channel_cols},
+                average_cols=set(controls),
             )
             aggregated_duplicate_rows = (
                 int(valid_date_rows.sum()) - len(aggregated_valid_rows)
@@ -89,13 +91,24 @@ def convert_mmm_data(
     return converted, aggregated_duplicate_rows
 
 
-def _aggregate_rows_by_date(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
+def _aggregate_rows_by_date(
+    df: pd.DataFrame,
+    date_col: str,
+    *,
+    additive_cols: set[str],
+    average_cols: set[str],
+) -> pd.DataFrame:
     ordered_columns = list(df.columns)
     grouped = (
         df.groupby(date_col, dropna=False, sort=False)
         .agg(
             {
-                column: _aggregate_column
+                column: lambda series, column_name=column: _aggregate_column(
+                    series,
+                    column_name=column_name,
+                    additive_cols=additive_cols,
+                    average_cols=average_cols,
+                )
                 for column in ordered_columns
                 if column != date_col
             }
@@ -105,9 +118,20 @@ def _aggregate_rows_by_date(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
     return grouped[ordered_columns]
 
 
-def _aggregate_column(series: pd.Series) -> Any:
-    if is_numeric_dtype(series):
+def _aggregate_column(
+    series: pd.Series,
+    *,
+    column_name: str,
+    additive_cols: set[str],
+    average_cols: set[str],
+) -> Any:
+    if column_name in additive_cols and is_numeric_dtype(series):
         return series.sum(min_count=1)
+    if column_name in average_cols and is_numeric_dtype(series):
+        non_null_values = series.dropna()
+        if non_null_values.empty:
+            return np.nan
+        return float(non_null_values.mean())
 
     non_null_values = series.dropna()
     if non_null_values.empty:

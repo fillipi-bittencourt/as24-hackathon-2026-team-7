@@ -202,11 +202,11 @@ class PyMCModel:
             )
             channel_draws_original = channel_draws / X_scale[:n_channels, np.newaxis]
             coefficient_lower = {
-                channel_names[idx]: float(np.percentile(channel_draws_original[idx], 3.0))
+                channel_names[idx]: float(az.hdi(channel_draws_original[idx], hdi_prob=0.94)[0])
                 for idx in range(n_channels)
             }
             coefficient_upper = {
-                channel_names[idx]: float(np.percentile(channel_draws_original[idx], 97.0))
+                channel_names[idx]: float(az.hdi(channel_draws_original[idx], hdi_prob=0.94)[1])
                 for idx in range(n_channels)
             }
 
@@ -218,8 +218,9 @@ class PyMCModel:
                 if np.any(valid):
                     spend_total = float(np.asarray(raw_spend[ch], dtype=np.float64).sum())
                     cpl_draws = spend_total / attr_draws[valid]
-                    cpl_lower[ch] = float(np.percentile(cpl_draws, 2.5))
-                    cpl_upper[ch] = float(np.percentile(cpl_draws, 97.5))
+                    cpl_hdi = az.hdi(cpl_draws, hdi_prob=0.94)
+                    cpl_lower[ch] = float(cpl_hdi[0])
+                    cpl_upper[ch] = float(cpl_hdi[1])
                 else:
                     cpl_lower[ch] = float("inf")
                     cpl_upper[ch] = float("inf")

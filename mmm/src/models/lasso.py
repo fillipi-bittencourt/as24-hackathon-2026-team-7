@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn.linear_model import Lasso
-from sklearn.preprocessing import StandardScaler
 
 from .base import (
     ModelResult,
     build_model_result,
     compute_r_squared_and_rmse,
-    fit_standardized_linear_model,
+    fit_constrained_standardized_linear_model,
 )
 
 
 class LassoModel:
     def __init__(self) -> None:
-        self._model: Lasso | None = None
-        self._scaler: StandardScaler | None = None
+        self._intercept: float | None = None
+        self._coefficients: np.ndarray | None = None
 
     def fit(
         self,
@@ -30,17 +28,18 @@ class LassoModel:
         y_values = np.asarray(y, dtype=np.float64)
         n_channels = len(channel_names)
 
-        self._model = Lasso(
-            alpha=alpha,
-            fit_intercept=True,
-            random_state=42,
-            max_iter=10000,
-        )
-        coefficients_array, intercept, y_pred, self._scaler = fit_standardized_linear_model(
-            self._model,
+        constrained_fit = fit_constrained_standardized_linear_model(
             X_values,
             y_values,
+            n_channels=n_channels,
+            alpha=alpha,
+            l1_ratio=1.0,
         )
+        self._intercept = constrained_fit.intercept
+        self._coefficients = constrained_fit.coefficients
+        coefficients_array = self._coefficients
+        intercept = self._intercept
+        y_pred = constrained_fit.y_pred
         coefficients = {
             ch: float(coefficients_array[idx]) for idx, ch in enumerate(channel_names)
         }
@@ -59,7 +58,10 @@ class LassoModel:
         )
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        if self._model is None or self._scaler is None:
+        if self._intercept is None or self._coefficients is None:
             raise ValueError("Model has not been fitted")
         X_values = np.asarray(X, dtype=np.float64)
-        return np.asarray(self._model.predict(self._scaler.transform(X_values)), dtype=np.float64)
+        return np.asarray(
+            float(self._intercept) + (X_values @ np.asarray(self._coefficients, dtype=np.float64)),
+            dtype=np.float64,
+        )

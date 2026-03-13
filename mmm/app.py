@@ -15,6 +15,7 @@ from src.ai.client import (
     build_payload,
     get_setup_recommendations,
     get_summary,
+    validate_analysis_text,
 )
 from src.app_state import (
     clear_setup_guidance,
@@ -41,20 +42,25 @@ from src.models.ols import OLSModel
 from src.models.pymc_model import PyMCModel
 from src.models.ridge import RidgeModel
 from src.results_helpers import (
+    aggregate_time_series_df,
     build_actual_vs_predicted_chart,
     build_labeled_bar_chart,
     build_period_mask,
     build_signed_bar_chart,
     build_spend_vs_contribution_chart,
     build_stacked_time_decomposition_chart,
-    compute_faithful_attribution,
-    compute_faithful_attribution_vectors,
+    compute_display_attribution,
+    compute_display_attribution_vectors,
     compute_mape_non_zero,
     compute_view_channel_metrics,
     format_cpl,
+    get_default_time_granularity,
+    get_time_granularity_options,
     format_number,
     format_signed_number,
     infer_grain,
+    infer_granularity_scale_factor,
+    is_rankable_cpl,
     pick_best_channel,
     pick_worst_channel,
 )
@@ -130,6 +136,7 @@ def render_ai_applied_setup_summary(
 ) -> None:
     selection = setup_recommendations.get("selection_recommendations", {})
     column_reasoning = setup_recommendations.get("column_selection_reasoning", {})
+    applied_selection_summary = setup_recommendations.get("applied_selection_summary", {})
     transform_recommendations = setup_recommendations.get("transform_recommendations", {})
     prior_recommendations = setup_recommendations.get("prior_recommendations", {})
 
@@ -171,6 +178,73 @@ def render_ai_applied_setup_summary(
     )
     if prior_recommendations.get("reasoning_summary"):
         col2.caption(str(prior_recommendations["reasoning_summary"]))
+
+    selection_rule_rows = []
+    for column in applied_selection_summary.get("ai_ranked_channels", []):
+        selection_rule_rows.append(
+            {
+                "Column": column,
+                "Type": "Channel",
+                "Applied because": "AI ranked",
+                "Coverage tag": applied_selection_summary.get("coverage_tags", {}).get(column, "unknown"),
+            }
+        )
+    for column in applied_selection_summary.get("force_kept_channels", []):
+        selection_rule_rows.append(
+            {
+                "Column": column,
+                "Type": "Channel",
+                "Applied because": "Coverage rule kept it",
+                "Coverage tag": applied_selection_summary.get("coverage_tags", {}).get(column, "unknown"),
+            }
+        )
+    for column in applied_selection_summary.get("ai_ranked_controls", []):
+        selection_rule_rows.append(
+            {
+                "Column": column,
+                "Type": "Control",
+                "Applied because": "AI ranked",
+                "Coverage tag": applied_selection_summary.get("coverage_tags", {}).get(column, "unknown"),
+            }
+        )
+    for column in applied_selection_summary.get("force_kept_controls", []):
+        selection_rule_rows.append(
+            {
+                "Column": column,
+                "Type": "Control",
+                "Applied because": "Coverage rule kept it",
+                "Coverage tag": applied_selection_summary.get("coverage_tags", {}).get(column, "unknown"),
+            }
+        )
+    if selection_rule_rows:
+        st.markdown("**Applied selection breakdown**")
+        st.caption(
+            "Columns with `patchy` or `healthy` coverage are kept automatically. Columns tagged `sparse` are excluded from the applied selection."
+        )
+        st.dataframe(pd.DataFrame(selection_rule_rows), width="stretch")
+
+    excluded_rows = []
+    for column in applied_selection_summary.get("sparse_excluded_channels", []):
+        excluded_rows.append(
+            {
+                "Column": column,
+                "Type": "Channel",
+                "Excluded because": "Sparse coverage",
+                "Coverage tag": applied_selection_summary.get("coverage_tags", {}).get(column, "unknown"),
+            }
+        )
+    for column in applied_selection_summary.get("sparse_excluded_controls", []):
+        excluded_rows.append(
+            {
+                "Column": column,
+                "Type": "Control",
+                "Excluded because": "Sparse coverage",
+                "Coverage tag": applied_selection_summary.get("coverage_tags", {}).get(column, "unknown"),
+            }
+        )
+    if excluded_rows:
+        st.markdown("**Excluded by coverage rule**")
+        st.dataframe(pd.DataFrame(excluded_rows), width="stretch")
 
     reasoning_rows = []
     for channel in st.session_state.get("channel_cols", []):
@@ -349,9 +423,11 @@ def compute_saturation_status(
     saturation_kind: str,
     avg_spend: float,
     saturation_params: dict[str, float],
+    *,
+    spend_scale_factor: float = 1.0,
 ) -> tuple[str, str]:
     if saturation_kind == "hill":
-        k_value = max(float(saturation_params.get("k", 0.0)), 0.0)
+        k_value = max(float(saturation_params.get("k", 0.0)) * spend_scale_factor, 0.0)
         if math.isclose(k_value, 0.0):
             return "hill no k", "Hill saturation is selected but k is near zero, so the status is not informative."
         spend_ratio = avg_spend / k_value
@@ -367,25 +443,24 @@ def compute_saturation_status(
 
 def build_saturation_curve_chart(
     df: pd.DataFrame,
+    date_col: str,
     channel_names: list[str],
     adstock_type: dict[str, str],
     adstock_params: dict[str, float],
     saturation_type: dict[str, str],
     saturation_params: dict[str, dict[str, float]],
+    granularity: str,
 ) -> alt.Chart | None:
     curve_rows: list[dict[str, Any]] = []
-    pre_saturation_df = pd.DataFrame(
-        {
-            channel: build_pre_saturation_series(
-                df[channel].to_numpy(dtype=np.float64),
-                adstock_kind=adstock_type.get(channel, "geometric"),
-                theta=float(adstock_params.get(channel, 0.0)),
-            )
-            for channel in channel_names
-        }
-    )
+    scale_factor = infer_granularity_scale_factor(df[date_col], granularity)
     for channel in channel_names:
-        max_spend = float(pre_saturation_df[channel].max())
+        aggregated_spend_df = aggregate_time_series_df(
+            df[[date_col, channel]].copy(),
+            date_col=date_col,
+            value_columns=[channel],
+            granularity=granularity,
+        )
+        max_spend = float(aggregated_spend_df[channel].max()) if not aggregated_spend_df.empty else 0.0
         curve_max = max(max_spend * 2.0, 1.0)
         spend_grid = np.linspace(0.0, curve_max, 60, dtype=np.float64)
         sat_kind = saturation_type.get(channel, "log")
@@ -394,7 +469,7 @@ def build_saturation_curve_chart(
             response = hill_saturation(
                 spend_grid,
                 float(params.get("alpha", 1.0)),
-                float(params.get("k", 1.0)),
+                max(float(params.get("k", 1.0)) * scale_factor, 0.1),
             )
         elif sat_kind == "log":
             response = log_saturation(spend_grid)
@@ -408,6 +483,7 @@ def build_saturation_curve_chart(
                     "spend": float(spend_value),
                     "response": float(response_value),
                     "saturation": sat_kind,
+                    "granularity": granularity,
                 }
             )
 
@@ -426,11 +502,12 @@ def build_saturation_curve_chart(
             tooltip=[
                 alt.Tooltip("channel:N", title="Channel"),
                 alt.Tooltip("saturation:N", title="Curve type"),
+                alt.Tooltip("granularity:N", title="Granularity"),
                 alt.Tooltip("spend:Q", title="Spend", format=",.2f"),
                 alt.Tooltip("response:Q", title="Response", format=",.4f"),
             ],
         )
-        .properties(title="Saturation curves", height=320, width="container")
+        .properties(title=f"Saturation curves ({granularity})", height=320, width="container")
     )
 
 
@@ -482,21 +559,28 @@ def render_sidebar_step_menu() -> str:
     return selected_step
 
 
-def format_saved_session_label(session_info: dict[str, str]) -> str:
+def format_saved_session_label(
+    session_info: dict[str, str],
+    duplicate_labels: dict[str, int] | None = None,
+) -> str:
     source = session_info.get("source") or "no source"
     saved_at = session_info.get("saved_at") or "unknown time"
     models = session_info.get("models") or "no fitted models"
-    return f"{session_info['display_name']} | {saved_at} | {source} | {models}"
+    label = f"{session_info['display_name']} | {saved_at} | {source} | {models}"
+    if duplicate_labels and duplicate_labels.get(label, 0) > 1:
+        return f"{label} | id {session_info.get('slug', '')}"
+    return label
 
 
 def format_saved_session_option(
     slug: str,
     session_by_slug: dict[str, dict[str, str]],
+    duplicate_labels: dict[str, int] | None = None,
 ) -> str:
     session_info = session_by_slug.get(slug)
     if session_info is None:
         return str(slug)
-    return format_saved_session_label(session_info)
+    return format_saved_session_label(session_info, duplicate_labels)
 
 
 def render_session_controls() -> None:
@@ -532,12 +616,16 @@ def render_session_controls() -> None:
     session_by_slug = {
         session_info["slug"]: session_info for session_info in saved_sessions
     }
+    duplicate_labels: dict[str, int] = {}
+    for session_info in saved_sessions:
+        base_label = format_saved_session_label(session_info)
+        duplicate_labels[base_label] = duplicate_labels.get(base_label, 0) + 1
     selected_slug = None
     if saved_sessions:
         selected_slug = st.sidebar.selectbox(
             "Saved sessions",
             options=list(session_by_slug.keys()),
-            format_func=lambda slug: format_saved_session_option(slug, session_by_slug),
+            format_func=lambda slug: format_saved_session_option(slug, session_by_slug, duplicate_labels),
             key="selected_saved_session",
             help="Choose a previously saved MMM state to restore.",
         )
@@ -1488,12 +1576,16 @@ def build_recommendation_lines(
         if holdout_mape is not None and float(holdout_mape) > 30.0:
             caution_reasons.append(f"Holdout MAPE is {float(holdout_mape):.1f}%.")
     if residual_gap_share > 20.0:
-        caution_reasons.append(f"Absolute residual gap is {residual_gap_share:.1f}% of actual leads.")
+        caution_reasons.append(f"Unexplained gap is {residual_gap_share:.1f}% of actual leads.")
     if negative_signal_channels:
         caution_reasons.append(
             "Negative fitted media signals are present for "
             + ", ".join(negative_signal_channels)
             + "."
+        )
+    if best_name is None or worst_name is None:
+        caution_reasons.append(
+            "The current view does not have enough rankable positive-CPL channels to support a best-versus-worst recommendation."
         )
     if selected_period != "All data":
         caution_reasons.append(
@@ -1516,7 +1608,7 @@ def build_recommendation_lines(
 
 
 def build_residual_label() -> str:
-    return "Residual gap"
+    return "Unexplained gap"
 
 
 def build_pre_saturation_series(
@@ -1543,9 +1635,9 @@ def render_results_tab() -> None:
             ("R²", "Share of variation explained by the model. Higher is better, but it is still an in-sample metric here."),
             ("RMSE", "Average prediction error in target units. Lower is better."),
             ("CPL", "Cost per lead. Lower means more efficient media."),
-            ("Contribution", "Raw modeled channel contribution over the selected view. It can be negative when the fitted coefficient is negative."),
-            ("Baseline", "Raw modeled baseline contribution from the intercept and any control effects."),
-            ("Residual gap", "Actual leads minus predicted leads over the selected view. Positive means the model under-predicts and negative means it over-predicts."),
+            ("Contribution", "Bounded business-facing channel contribution over the selected view."),
+            ("Baseline", "Bounded non-media contribution after clipping negative components and scaling to actual leads."),
+            ("Unexplained gap", "Remaining positive lead volume not assigned to media or baseline in the business-facing decomposition."),
         ],
     )
     render_reference_values_expander(
@@ -1555,7 +1647,7 @@ def render_results_tab() -> None:
             ("R²", "0.30 to 0.60 usable", "Good enough for early insight and internal discussion, especially in fast MMM prototypes."),
             ("R²", "Above 0.60 strong for this type of app", "Usually means the model explains a large share of observed movement, but still validate out of sample."),
             ("MAPE non-zero", "Below 20% often workable", "Lower is better. Use with RMSE and business context, not as a single pass/fail rule."),
-            ("Residual gap", "Closer to 0% is better", "Use the signed gap to see whether the model is systematically under- or over-predicting in the selected view."),
+            ("Unexplained gap", "Closer to 0% is better", "Lower unexplained share means more of the observed leads are covered by the business-facing decomposition."),
             ("CPL", "Lower is better", "Compare channels relative to each other, not against one universal number."),
             ("Contribution share", "Large share plus low CPL is strongest", "A channel is more persuasive when it combines meaningful volume with efficient CPL."),
             ("Recommendation quality", "Use as directional guidance", "Treat the action section as a heuristic, not a forecast or final media plan."),
@@ -1585,10 +1677,24 @@ def render_results_tab() -> None:
     )
     st.session_state["results_period"] = selected_period
     period_mask = build_period_mask(date_series, selected_period)
+    granularity_options = get_time_granularity_options(date_series)
+    previous_visual_granularity = st.session_state.get(
+        "results_visual_granularity",
+        get_default_time_granularity(date_series),
+    )
+    selected_visual_granularity = st.selectbox(
+        "Visual granularity",
+        options=granularity_options,
+        index=granularity_options.index(previous_visual_granularity)
+        if previous_visual_granularity in granularity_options
+        else granularity_options.index(get_default_time_granularity(date_series)),
+        help="Choose the time aggregation used by time-based visuals. Weekly is the default when the source grain allows it.",
+    )
+    st.session_state["results_visual_granularity"] = selected_visual_granularity
 
     actual_values = st.session_state["y"]
     actual_total = float(actual_values[period_mask].sum())
-    channel_totals, baseline_total, residual_total = compute_faithful_attribution(
+    channel_totals, baseline_total, residual_total = compute_display_attribution(
         result,
         actual_values,
         row_mask=period_mask,
@@ -1624,6 +1730,12 @@ def render_results_tab() -> None:
         if channel not in visible_channels
     )
     residual_label = build_residual_label()
+    _, all_cpl_map = compute_view_channel_metrics(
+        st.session_state["df"],
+        result.channel_names,
+        period_mask,
+        channel_totals,
+    )
     visible_spend_totals, visible_cpl_map = compute_view_channel_metrics(
         st.session_state["df"],
         visible_channels,
@@ -1635,9 +1747,9 @@ def render_results_tab() -> None:
         if float(result.coefficients.get(channel, 0.0)) < 0.0
     ]
     show_baseline = st.checkbox(
-        "Show baseline and residual components",
+        "Show baseline and unexplained components",
         value=bool(st.session_state.get("show_baseline_visual", True)),
-        help="Include raw baseline contribution and the signed residual gap in the visual summaries.",
+        help="Include bounded baseline and unexplained components in the visual summaries.",
     )
     st.session_state["show_baseline_visual"] = show_baseline
 
@@ -1647,7 +1759,7 @@ def render_results_tab() -> None:
     st.dataframe(comparison_df, width="stretch")
     st.caption("Model comparison table. In-sample columns describe the final fitted model. Holdout columns describe a time-based validation split using the latest 20% of periods.")
     st.info(
-        "Statistical note: the contribution, baseline, and residual values below now reflect the raw fitted model decomposition for the selected period. They are no longer clipped or rescaled to force a clean stakeholder-facing split."
+        "Business note: the contribution, baseline, and unexplained values below use a bounded decomposition for stakeholder readability. Negative raw components are clipped at zero and rescaled to actual leads."
     )
 
     coefficient_df = pd.DataFrame(
@@ -1674,11 +1786,12 @@ def render_results_tab() -> None:
     st.dataframe(cpl_df, width="stretch")
     st.caption("CPL comparison table. Lower CPL means the channel is more efficient in that model. `N/A` means the model assigned zero or negative attributed leads to that channel in the selected fit.")
 
-    best_name, best_value = pick_best_channel(visible_cpl_map)
+    best_name, best_value = pick_best_channel(all_cpl_map)
+    best_visible_name, best_visible_value = pick_best_channel(visible_cpl_map)
     fitted_at = st.session_state["model_results_meta"].get(selected_model, {}).get("fitted_at")
 
     st.subheader("What is happening?")
-    st.caption("Use this section for the top-line picture. It compares actual leads with the raw model decomposition into media contribution, baseline contribution, and the signed residual gap.")
+    st.caption("Use this section for the top-line picture. It compares actual leads with a bounded business-facing decomposition into media contribution, baseline contribution, and unexplained gap.")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric(
         "Total leads",
@@ -1687,26 +1800,26 @@ def render_results_tab() -> None:
     )
     col2.metric(
         "Media contribution",
-        format_signed_number(media_total),
-        help="Raw modeled contribution from all media channels in the selected period.",
+        format_number(media_total),
+        help="Bounded media contribution from all channels in the selected period.",
     )
     col3.metric(
         "Baseline contribution",
-        format_signed_number(baseline_total),
-        help="Raw modeled baseline contribution, which absorbs intercept and control effects.",
+        format_number(baseline_total),
+        help="Bounded baseline contribution from intercept and control effects in the selected period.",
     )
     col4.metric(
         residual_label,
-        format_signed_number(residual_total),
-        f"{residual_share:+.1f}% of actual",
-        help="Signed model residual for the selected period. Positive means the model under-predicts actual leads and negative means it over-predicts them.",
+        format_number(residual_total),
+        f"{residual_share:.1f}% of actual",
+        help="Positive unexplained lead volume left after the bounded business-facing decomposition is applied.",
     )
     col5, col6 = st.columns(2)
     col5.metric(
         "Top channel by CPL",
         best_name or "N/A",
         format_cpl(best_value) if best_value is not None else None,
-        help="The currently visible channel with the lowest cost per lead in the selected model.",
+        help="The rankable channel with the lowest positive cost per lead across all channels in the selected model.",
     )
     col6.metric(
         "Model fit",
@@ -1726,38 +1839,46 @@ def render_results_tab() -> None:
             "Component",
             "Value",
             "Label",
-            "Raw model decomposition in the selected period",
+            "Business-facing lead decomposition in the selected period",
         )
     )
     st.caption(
-        f"Predicted leads for the selected period are {format_signed_number(predicted_total)}. Actual leads equal predicted leads plus the signed residual gap."
+        f"Predicted leads for the selected period are {format_signed_number(predicted_total)}. The displayed baseline and unexplained values are bounded for business readability and sum back to actual leads with media."
     )
     if hidden_media_total:
         st.info(
-            f"The current channel filter hides {format_signed_number(hidden_media_total)} of raw media contribution. The contribution, baseline, and residual metrics above still reflect the full selected model, while the channel-specific tables and charts below use the current filter."
+            f"The current channel filter hides {format_number(hidden_media_total)} of media contribution. The contribution, baseline, and unexplained metrics above still reflect the full selected model, while the channel-specific tables and charts below use the current filter."
         )
+    actual_vs_pred_source_df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(date_series[period_mask]).reset_index(drop=True),
+            "actual": np.asarray(actual_values[period_mask], dtype=np.float64),
+            "predicted": np.asarray(result.y_pred[period_mask], dtype=np.float64),
+        }
+    )
+    actual_vs_pred_chart_df = aggregate_time_series_df(
+        actual_vs_pred_source_df,
+        date_col="date",
+        value_columns=["actual", "predicted"],
+        granularity=selected_visual_granularity,
+    )
     actual_vs_pred_rows = []
-    selected_dates = pd.to_datetime(date_series[period_mask]).reset_index(drop=True)
-    selected_actual_series = np.asarray(actual_values[period_mask], dtype=np.float64)
-    selected_pred_series = np.asarray(result.y_pred[period_mask], dtype=np.float64)
-    label_stride = max(1, len(selected_dates) // 10) if len(selected_dates) > 0 else 1
-    for idx, (current_date, actual_value, predicted_value) in enumerate(
-        zip(selected_dates, selected_actual_series, selected_pred_series)
-    ):
+    label_stride = max(1, len(actual_vs_pred_chart_df) // 10) if len(actual_vs_pred_chart_df) > 0 else 1
+    for idx, row in actual_vs_pred_chart_df.iterrows():
         actual_vs_pred_rows.append(
             {
-                "date": current_date,
+                "date": row["date"],
                 "series": "Actual leads",
-                "leads": float(actual_value),
-                "label": format_number(float(actual_value)) if idx % label_stride == 0 else "",
+                "leads": float(row["actual"]),
+                "label": format_number(float(row["actual"])) if idx % label_stride == 0 else "",
             }
         )
         actual_vs_pred_rows.append(
             {
-                "date": current_date,
+                "date": row["date"],
                 "series": "Predicted leads",
-                "leads": float(predicted_value),
-                "label": format_number(float(predicted_value)) if idx % label_stride == 0 else "",
+                "leads": float(row["predicted"]),
+                "label": format_number(float(row["predicted"])) if idx % label_stride == 0 else "",
             }
         )
     actual_vs_pred_df = pd.DataFrame(actual_vs_pred_rows)
@@ -1765,7 +1886,7 @@ def render_results_tab() -> None:
         st.altair_chart(
             build_actual_vs_predicted_chart(
                 actual_vs_pred_df,
-                "Actual vs predicted leads over time",
+                f"Actual vs predicted leads over time ({selected_visual_granularity})",
             )
         )
     if fitted_at:
@@ -1779,9 +1900,15 @@ def render_results_tab() -> None:
             "This section shows a simple time-based holdout check using the latest 20% of periods as validation data."
         )
         holdout_df = holdout_meta["holdout_df"].copy()
+        holdout_chart_df = aggregate_time_series_df(
+            holdout_df,
+            date_col="date",
+            value_columns=["actual", "predicted"],
+            granularity=selected_visual_granularity,
+        )
         holdout_rows = []
-        label_stride = max(1, len(holdout_df) // 8) if len(holdout_df) > 0 else 1
-        for idx, row in holdout_df.iterrows():
+        label_stride = max(1, len(holdout_chart_df) // 8) if len(holdout_chart_df) > 0 else 1
+        for idx, row in holdout_chart_df.iterrows():
             holdout_rows.append(
                 {
                     "date": row["date"],
@@ -1803,10 +1930,10 @@ def render_results_tab() -> None:
             st.altair_chart(
                 build_actual_vs_predicted_chart(
                     holdout_plot_df,
-                    "Holdout actual vs predicted leads",
+                    f"Holdout actual vs predicted leads ({selected_visual_granularity})",
                 )
             )
-        residual_df = holdout_df.copy()
+        residual_df = holdout_chart_df.copy()
         residual_df["residual"] = residual_df["actual"] - residual_df["predicted"]
         residual_df["label"] = residual_df["residual"].apply(
             lambda value: format_signed_number(float(value)) if abs(float(value)) >= residual_df["residual"].abs().max() * 0.6 else ""
@@ -1829,7 +1956,7 @@ def render_results_tab() -> None:
                     alt.Tooltip("residual:Q", title="Residual", format=",.2f"),
                 ],
             )
-            .properties(title="Holdout residuals", height=260, width="container")
+            .properties(title=f"Holdout residuals ({selected_visual_granularity})", height=260, width="container")
         )
         st.altair_chart(residual_chart)
 
@@ -1890,7 +2017,7 @@ def render_results_tab() -> None:
             st.dataframe(pd.DataFrame(flagged_parameters), width="stretch")
 
     st.subheader("Why is it happening?")
-    st.caption("Use this section to explain channel efficiency. Focus on CPL, raw contribution, and each channel's raw share of actual leads in the current filtered view.")
+    st.caption("Use this section to explain channel efficiency. Focus on CPL, bounded contribution, and each channel's share of actual leads in the current filtered view.")
     if negative_signal_channels:
         st.warning(
             "Some selected channels have negative fitted coefficients: "
@@ -1899,7 +2026,7 @@ def render_results_tab() -> None:
         )
     if hidden_media_total > 0:
         st.info(
-            f"The current chart filter hides {format_signed_number(hidden_media_total)} of media contribution. Hidden media is excluded from the channel table and charts below, but it is not folded into the residual gap."
+            f"The current chart filter hides {format_number(hidden_media_total)} of media contribution. Hidden media is excluded from the channel table and charts below, but it is not folded into the unexplained gap."
         )
     if selected_period != "All data" and any(
         st.session_state["adstock_type"].get(channel, "geometric") == "geometric"
@@ -1929,7 +2056,7 @@ def render_results_tab() -> None:
     why_df = pd.DataFrame(why_rows)
     st.dataframe(why_df, width="stretch")
     st.caption(
-        "Raw contribution share is contribution divided by actual leads in the selected period, so it can be negative or exceed 100% when baseline and residual components offset the channel effects."
+        "Contribution share here is the bounded business-facing contribution divided by actual leads in the selected period."
     )
     total_visible_spend = float(sum(visible_spend_totals.values()))
     benchmarking_rows = []
@@ -1965,15 +2092,16 @@ def render_results_tab() -> None:
         st.altair_chart(
             build_spend_vs_contribution_chart(
                 benchmarking_df,
-                "Spend share vs raw contribution share",
+                "Spend share vs business-facing contribution share",
             )
         )
-        st.caption("Contribution share here is raw contribution divided by actual leads, so negative values mean the fitted model assigns a negative net effect to that channel.")
+        st.caption("Contribution share here is the bounded business-facing contribution divided by actual leads.")
+        st.caption("The spend-vs-contribution comparison uses the bounded business-facing decomposition for readability.")
 
     cpl_chart = {
         channel: value
         for channel, value in visible_cpl_map.items()
-        if not math.isinf(value)
+        if is_rankable_cpl(value)
     }
     if cpl_chart:
         ordered_series = pd.Series(cpl_chart).sort_values(ascending=True)
@@ -1993,17 +2121,19 @@ def render_results_tab() -> None:
                 "CPL by channel",
             )
         )
+    elif visible_channels:
+        st.info("No rankable CPL values are available in the current visible-channel view because the selected channels have zero or negative attributed leads.")
 
     st.subheader("What should leadership do next?")
-    st.caption("Use this as the action section. The recommendation is directional and based on current modelled efficiency, not a guaranteed forecast.")
+    st.caption("Use this as the action section. The recommendation is directional and based on the current business-facing efficiency view, not a guaranteed forecast.")
     worst_name, worst_value = pick_worst_channel(visible_cpl_map)
     reallocation_pct = 0
-    if best_value and worst_value and worst_value > 0:
-        reallocation_pct = min(50, round((worst_value - best_value) / worst_value * 100))
+    if best_visible_value and worst_value and worst_value > 0:
+        reallocation_pct = min(50, round((worst_value - best_visible_value) / worst_value * 100))
 
     recommendation_lines = build_recommendation_lines(
-        best_name=best_name,
-        best_value=best_value,
+        best_name=best_visible_name,
+        best_value=best_visible_value,
         worst_name=worst_name,
         worst_value=worst_value,
         reallocation_pct=reallocation_pct,
@@ -2038,7 +2168,7 @@ def render_results_tab() -> None:
         highlighted_channels = ordered_channels[:top_n_channels]
         other_channels = ordered_channels[top_n_channels:]
 
-        channel_vectors, baseline_vector, residual_vector = compute_faithful_attribution_vectors(
+        channel_vectors, baseline_vector, residual_vector = compute_display_attribution_vectors(
             result,
             st.session_state["y"],
             row_mask=period_mask,
@@ -2057,6 +2187,12 @@ def render_results_tab() -> None:
             insight_df["baseline"] = baseline_vector
             insight_df["residual_gap"] = residual_vector
         insight_df.insert(0, "date", date_series[period_mask].to_numpy())
+        insight_df = aggregate_time_series_df(
+            insight_df,
+            date_col="date",
+            value_columns=[column for column in insight_df.columns if column != "date"],
+            granularity=selected_visual_granularity,
+        )
         insight_long_df = insight_df.melt(
             id_vars=["date"],
             var_name="variable",
@@ -2080,16 +2216,10 @@ def render_results_tab() -> None:
         insight_long_df["SegmentOrder"] = insight_long_df["variable"].apply(
             lambda value: 1 if value not in {"baseline", "residual_gap"} else 2 if value == "baseline" else 3
         )
-        has_negative_components = bool((insight_long_df["leads"] < 0).any())
         share_mode_enabled = decomposition_mode == "Share of leads"
-        if share_mode_enabled and has_negative_components:
-            st.warning(
-                "Share mode is disabled for this view because the raw fitted decomposition contains negative components. Showing absolute leads instead."
-            )
-            share_mode_enabled = False
         insight_chart = build_stacked_time_decomposition_chart(
             insight_long_df,
-            "Stacked lead decomposition over time",
+            f"Stacked lead decomposition over time ({selected_visual_granularity})",
             share_mode=share_mode_enabled,
         )
         st.altair_chart(insight_chart)
@@ -2098,38 +2228,50 @@ def render_results_tab() -> None:
         st.caption(
             "These diagnostics explain how each channel was transformed before modeling and whether spend looks closer to headroom or saturation."
         )
+        visual_scale_factor = infer_granularity_scale_factor(
+            st.session_state["df"].loc[period_mask, date_col],
+            selected_visual_granularity,
+        )
         rows = []
         for channel in st.session_state["selected_visual_channels"]:
             theta = st.session_state["adstock_params"].get(channel, 0.0)
+            source_grain = infer_grain(date_series) or "weekly"
             if theta <= 0:
                 carryover = "No carryover"
             elif theta >= 1.0:
                 carryover = "Indefinite carryover"
             else:
-                carryover = f"{round(-math.log(0.05) / -math.log(theta))} weeks"
-            pre_saturation_series = build_pre_saturation_series(
-                st.session_state["df"].loc[period_mask, channel].to_numpy(dtype=np.float64),
-                adstock_kind=st.session_state["adstock_type"].get(channel, "geometric"),
-                theta=float(theta),
+                carryover_periods = round(-math.log(0.05) / -math.log(theta))
+                carryover_unit = {"daily": "days", "weekly": "weeks", "monthly": "months"}.get(
+                    source_grain,
+                    "periods",
+                )
+                carryover = f"{carryover_periods} {carryover_unit}"
+            aggregated_spend_df = aggregate_time_series_df(
+                st.session_state["df"].loc[period_mask, [date_col, channel]].reset_index(drop=True),
+                date_col=date_col,
+                value_columns=[channel],
+                granularity=selected_visual_granularity,
             )
-            avg_pre_saturation_input = float(pre_saturation_series.mean()) if len(pre_saturation_series) > 0 else 0.0
-            avg_weekly_spend = float(visible_spend_totals[channel] / max(int(np.sum(period_mask)), 1))
-            avg_weekly_contribution = float(visible_channel_totals[channel] / max(int(np.sum(period_mask)), 1))
+            avg_display_spend = float(aggregated_spend_df[channel].mean()) if not aggregated_spend_df.empty else 0.0
+            avg_display_contribution = float(
+                visible_channel_totals[channel] / max(len(aggregated_spend_df), 1)
+            )
             sat_kind = st.session_state["saturation_type"].get(channel, "log")
             sat_params = st.session_state["saturation_params"].get(channel, {"alpha": 1.0, "k": 0.0})
             saturation_status, saturation_note = compute_saturation_status(
                 sat_kind,
-                avg_pre_saturation_input,
+                avg_display_spend,
                 sat_params,
+                spend_scale_factor=visual_scale_factor,
             )
             rows.append(
                 {
                     "Channel": channel,
                     "Spend total": round(float(visible_spend_totals[channel]), 2),
-                    "Average weekly spend": round(avg_weekly_spend, 2),
-                    "Average modeled input": round(avg_pre_saturation_input, 2),
+                    f"Average {selected_visual_granularity.lower()} spend": round(avg_display_spend, 2),
                     "Contribution": round(float(visible_channel_totals[channel]), 2),
-                    "Average weekly contribution": round(avg_weekly_contribution, 2),
+                    f"Average {selected_visual_granularity.lower()} contribution": round(avg_display_contribution, 2),
                     "Contribution share (%)": round(
                         (float(visible_channel_totals[channel]) / actual_total) * 100,
                         2,
@@ -2148,11 +2290,13 @@ def render_results_tab() -> None:
 
         saturation_chart = build_saturation_curve_chart(
             st.session_state["df"].loc[period_mask].reset_index(drop=True),
+            date_col,
             st.session_state["selected_visual_channels"],
             st.session_state["adstock_type"],
             st.session_state["adstock_params"],
             st.session_state["saturation_type"],
             st.session_state["saturation_params"],
+            selected_visual_granularity,
         )
         if saturation_chart is not None:
             st.altair_chart(saturation_chart)
@@ -2236,8 +2380,8 @@ def render_results_tab() -> None:
         )
         quick_col2.metric(
             "Best channel",
-            best_name or "N/A",
-            format_cpl(best_value) if best_value is not None else None,
+            best_visible_name or "N/A",
+            format_cpl(best_visible_value) if best_visible_value is not None else None,
             help="The visible channel with the lowest cost per lead in the selected model.",
         )
         quick_col3, quick_col4 = st.columns(2)
@@ -2249,12 +2393,12 @@ def render_results_tab() -> None:
         )
         quick_col4.metric(
             residual_label,
-            format_signed_number(residual_total),
-            f"{residual_share:+.1f}% of actual",
-            help="Signed residual over the selected period. Positive means under-prediction and negative means over-prediction.",
+            format_number(residual_total),
+            f"{residual_share:.1f}% of actual",
+            help="Positive unexplained lead volume left after the bounded business-facing decomposition.",
         )
         st.info(
-            f"Raw contribution totals in this view: media {format_signed_number(media_total)}, baseline {format_signed_number(baseline_total)}."
+            f"Bounded contribution totals in this view: visible media {format_number(visible_media_total)}, baseline {format_number(baseline_total)}."
         )
         saturated_channels = []
         for channel in visible_channels:
@@ -2271,9 +2415,9 @@ def render_results_tab() -> None:
             )
         else:
             st.info("No selected channel currently looks over-saturated from the configured MMM transform view.")
-        if best_name and worst_name and best_name != worst_name:
+        if best_visible_name and worst_name and best_visible_name != worst_name:
             st.info(
-                f"Current efficiency gap: {best_name} is the strongest channel by CPL while {worst_name} is the weakest in the selected view."
+                f"Current efficiency gap: {best_visible_name} is the strongest channel by CPL while {worst_name} is the weakest in the selected view."
             )
 
 
@@ -2294,7 +2438,7 @@ def render_ai_tab() -> None:
     period_mask = build_period_mask(date_series, selected_period)
     actual_values = st.session_state["y"]
     actual_total = float(actual_values[period_mask].sum())
-    channel_totals, baseline_total, residual_total = compute_faithful_attribution(
+    channel_totals, baseline_total, residual_total = compute_display_attribution(
         result,
         actual_values,
         row_mask=period_mask,
@@ -2397,6 +2541,11 @@ def render_ai_tab() -> None:
                     model,
                     detailed=analysis_mode == "In-depth",
                 )
+                validation = validate_analysis_text(
+                    summary,
+                    payload,
+                    detailed=analysis_mode == "In-depth",
+                )
             except Exception as exc:
                 st.session_state["ai_summary"] = None
                 st.session_state["ai_summary_meta"] = None
@@ -2413,6 +2562,7 @@ def render_ai_tab() -> None:
                     "resolved_model": model,
                     "source_file": loaded_source,
                     "generated_at": datetime.now().isoformat(timespec="seconds"),
+                    "validation": validation,
                 }
 
     if st.session_state.get("ai_summary"):
@@ -2456,6 +2606,23 @@ def render_ai_tab() -> None:
             st.warning(
                 "The current Results view has changed since this AI analysis was generated. Regenerate the analysis before exporting AI outputs or the complete overview."
             )
+        validation_result = ai_summary_meta.get("validation")
+        if isinstance(validation_result, dict):
+            validation_status = str(validation_result.get("status", "warning"))
+            validation_issues = validation_result.get("issues") or []
+            if validation_status == "passed":
+                st.success("Automatic AI validation passed for this generated response.")
+            elif validation_status == "failed":
+                st.error(
+                    "Automatic AI validation found blocking issues in this generated response. Review the findings before sharing or exporting it."
+                )
+            else:
+                st.warning(
+                    "Automatic AI validation found issues in this generated response. Review the findings before sharing or exporting it."
+                )
+            if validation_issues:
+                validation_df = pd.DataFrame(validation_issues)
+                st.dataframe(validation_df, width="stretch")
         st.markdown(st.session_state["ai_summary"])
         if not ai_is_stale:
             ai_export_df = pd.DataFrame(
@@ -2467,6 +2634,16 @@ def render_ai_tab() -> None:
                         "source_file": ai_summary_meta.get("source_file", loaded_source),
                         "selected_model": generated_for_model or selected_model,
                         "results_period": generated_for_period or selected_period,
+                        "validation_status": (
+                            validation_result.get("status")
+                            if isinstance(validation_result, dict)
+                            else None
+                        ),
+                        "validation_issue_count": (
+                            len(validation_result.get("issues") or [])
+                            if isinstance(validation_result, dict)
+                            else None
+                        ),
                         "analysis": st.session_state["ai_summary"],
                     }
                 ]

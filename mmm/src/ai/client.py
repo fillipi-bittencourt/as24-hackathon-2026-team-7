@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any
 
 import numpy as np
@@ -10,8 +11,9 @@ import pandas as pd
 
 from src.results_helpers import (
     build_period_mask,
-    compute_faithful_attribution,
+    compute_display_attribution,
     compute_view_channel_metrics,
+    is_rankable_cpl,
 )
 
 
@@ -101,7 +103,7 @@ def build_payload(
     period_mask = build_period_mask(date_series, selected_period)
     selected_rows = int(np.sum(period_mask))
     actual_total = float(y[period_mask].sum()) if y is not None else 0.0
-    channel_totals, baseline_total, residual_total = compute_faithful_attribution(
+    channel_totals, baseline_total, residual_total = compute_display_attribution(
         model_result,
         y,
         row_mask=period_mask,
@@ -121,7 +123,7 @@ def build_payload(
             {
                 "name": ch,
                 "coefficient": _clean_number(model_result.coefficients.get(ch)),
-                "cpl": _clean_number(view_cpl_map.get(ch)),
+                "cpl": _clean_number(view_cpl_map.get(ch)) if is_rankable_cpl(view_cpl_map.get(ch)) else None,
                 "contribution_pct": _clean_number(contribution_share),
                 "contribution_total": _clean_number(contribution_total),
                 "contribution_share_of_actual_pct": _clean_number(contribution_share),
@@ -138,7 +140,7 @@ def build_payload(
     holdout_meta = model_results_meta.get(model_result.model_name, {}).get("holdout")
     bayesian_meta = model_results_meta.get(model_result.model_name, {}).get("bayesian_diagnostics")
     methodology_notes = [
-        "Contribution, baseline, and residual totals reflect the raw fitted model decomposition for the selected period without clipping or rescaling."
+        "Contribution, baseline, and residual totals reflect a bounded business-facing decomposition. Negative raw components are clipped at zero and scaled back to actual leads for interpretability."
     ]
     if selected_period != "All data" and any(
         adstock_type.get(channel, "geometric") == "geometric"
@@ -332,6 +334,180 @@ def get_summary(
     )
 
 
+def validate_analysis_text(
+    text: str,
+    payload: dict[str, Any],
+    *,
+    detailed: bool = True,
+) -> dict[str, Any]:
+    issues: list[dict[str, str]] = []
+    cleaned_text = str(text or "").strip()
+    if not cleaned_text:
+        issues.append(
+            {
+                "severity": "error",
+                "code": "empty_output",
+                "message": "The AI response is empty.",
+            }
+        )
+        return _build_validation_result(issues)
+
+    sections = _extract_analysis_sections(cleaned_text)
+    payload_number_tokens = _collect_payload_number_tokens(payload)
+    has_comparison_table = bool(payload.get("comparison_table"))
+
+    if detailed:
+        required_sections = [
+            "Executive summary",
+            "Statistical rigor check",
+            "Channel diagnosis",
+            "Action plan",
+            "Risks and assumptions",
+        ]
+        optional_sections = ["Cross-model consistency"]
+        expected_order = [
+            "Executive summary",
+            "Statistical rigor check",
+            "Channel diagnosis",
+            "Cross-model consistency",
+            "Action plan",
+            "Risks and assumptions",
+        ]
+    else:
+        required_sections = [
+            "Executive summary",
+            "Statistical check",
+            "Recommendation",
+            "Confidence note",
+        ]
+        optional_sections = []
+        expected_order = required_sections
+
+    for section_name in required_sections:
+        if section_name not in sections:
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": "missing_section",
+                    "message": f"Missing required section `{section_name}`.",
+                }
+            )
+
+    present_order = [name for name in sections.keys() if name in expected_order]
+    expected_present_order = [name for name in expected_order if name in sections]
+    if present_order != expected_present_order:
+        issues.append(
+            {
+                "severity": "error",
+                "code": "section_order",
+                "message": "The AI response sections are out of order.",
+            }
+        )
+
+    if detailed and not has_comparison_table and "Cross-model consistency" in sections:
+        issues.append(
+            {
+                "severity": "warning",
+                "code": "unexpected_cross_model_section",
+                "message": "The response includes `Cross-model consistency` even though no comparison table was provided.",
+            }
+        )
+    if detailed and has_comparison_table and "Cross-model consistency" not in sections:
+        issues.append(
+            {
+                "severity": "warning",
+                "code": "missing_cross_model_section",
+                "message": "The response did not include `Cross-model consistency` even though comparison data was available.",
+            }
+        )
+
+    executive_section_name = "Executive summary"
+    executive_lines = _non_empty_section_lines(sections.get(executive_section_name, ""))
+    if detailed and executive_lines:
+        if len(executive_lines) != 3:
+            issues.append(
+                {
+                    "severity": "warning",
+                    "code": "executive_summary_count",
+                    "message": "The executive summary should contain exactly 3 bullets.",
+                }
+            )
+        if any(not line.lstrip().startswith("-") for line in executive_lines):
+            issues.append(
+                {
+                    "severity": "warning",
+                    "code": "executive_summary_format",
+                    "message": "The executive summary lines are not formatted as bullets.",
+                }
+            )
+        if any(not _contains_payload_number(line, payload_number_tokens) for line in executive_lines):
+            issues.append(
+                {
+                    "severity": "warning",
+                    "code": "executive_summary_numbers",
+                    "message": "Each executive summary bullet should cite at least one number from the payload.",
+                }
+            )
+
+    action_section_name = "Action plan" if detailed else "Recommendation"
+    action_text = sections.get(action_section_name, "")
+    if action_text:
+        lowered_action = action_text.lower()
+        if detailed:
+            if "30-day" not in lowered_action and "30 day" not in lowered_action:
+                issues.append(
+                    {
+                        "severity": "warning",
+                        "code": "missing_30_day_plan",
+                        "message": "The action plan does not include a 30-day step.",
+                    }
+                )
+            if "60-day" not in lowered_action and "60 day" not in lowered_action:
+                issues.append(
+                    {
+                        "severity": "warning",
+                        "code": "missing_60_day_plan",
+                        "message": "The action plan does not include a 60-day step.",
+                    }
+                )
+        if not _contains_payload_number(action_text, payload_number_tokens):
+            issues.append(
+                {
+                    "severity": "warning",
+                    "code": "action_plan_numbers",
+                    "message": "The action plan does not cite any number from the payload.",
+                }
+            )
+
+    channel_diagnosis_text = sections.get("Channel diagnosis", cleaned_text)
+    top_channel = payload.get("top_channel")
+    bottom_channel = payload.get("bottom_channel")
+    if top_channel:
+        issues.extend(
+            _validate_rank_claim(
+                channel_diagnosis_text,
+                payload,
+                expected_channel=str(top_channel),
+                keywords=("strongest", "most efficient", "best performer", "best channel"),
+                code="top_channel_claim",
+                direction="strongest",
+            )
+        )
+    if bottom_channel:
+        issues.extend(
+            _validate_rank_claim(
+                channel_diagnosis_text,
+                payload,
+                expected_channel=str(bottom_channel),
+                keywords=("weakest", "worst", "least efficient", "highest cpl"),
+                code="bottom_channel_claim",
+                direction="weakest",
+            )
+        )
+
+    return _build_validation_result(issues)
+
+
 def get_setup_recommendations(
     payload: dict[str, Any],
     provider: str,
@@ -357,8 +533,10 @@ def _pick_channel_name(cpl_map: dict[str, float], *, best: bool) -> str | None:
     if not filtered:
         return None
 
-    finite = {key: value for key, value in filtered.items() if value != float("inf")}
-    source = finite or filtered
+    finite = {key: value for key, value in filtered.items() if is_rankable_cpl(value)}
+    if not finite:
+        return None
+    source = finite
     if best:
         return min(source.items(), key=lambda item: item[1])[0]
     return max(source.items(), key=lambda item: item[1])[0]
@@ -531,3 +709,172 @@ def _load_prompt_template(template_name: str) -> str:
     prompts_dir = Path(__file__).resolve().parent / "prompts"
     template_path = prompts_dir / template_name
     return template_path.read_text(encoding="utf-8")
+
+
+def _build_validation_result(issues: list[dict[str, str]]) -> dict[str, Any]:
+    error_count = sum(1 for issue in issues if issue["severity"] == "error")
+    warning_count = sum(1 for issue in issues if issue["severity"] == "warning")
+    if error_count > 0:
+        status = "failed"
+    elif warning_count > 0:
+        status = "warning"
+    else:
+        status = "passed"
+    return {
+        "status": status,
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "issues": issues,
+    }
+
+
+def _extract_analysis_sections(text: str) -> dict[str, str]:
+    sections: dict[str, str] = {}
+    current_section: str | None = None
+    buffer: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        canonical_name = _canonical_section_name(line)
+        if canonical_name is not None:
+            if current_section is not None:
+                sections[current_section] = "\n".join(buffer).strip()
+            current_section = canonical_name
+            buffer = []
+            continue
+        if current_section is not None:
+            buffer.append(raw_line)
+    if current_section is not None:
+        sections[current_section] = "\n".join(buffer).strip()
+    return sections
+
+
+def _canonical_section_name(line: str) -> str | None:
+    normalized = _normalize_heading(line)
+    heading_map = {
+        "executive summary": "Executive summary",
+        "statistical rigor check": "Statistical rigor check",
+        "statistical check": "Statistical check",
+        "channel diagnosis": "Channel diagnosis",
+        "cross model consistency": "Cross-model consistency",
+        "action plan": "Action plan",
+        "risks and assumptions": "Risks and assumptions",
+        "recommendation": "Recommendation",
+        "confidence note": "Confidence note",
+    }
+    return heading_map.get(normalized)
+
+
+def _normalize_heading(line: str) -> str:
+    stripped = line.strip().strip("*").strip()
+    stripped = re.sub(r"^\d+\.\s*", "", stripped)
+    stripped = re.sub(r"[^a-zA-Z0-9]+", " ", stripped).strip().lower()
+    return stripped
+
+
+def _non_empty_section_lines(section_text: str) -> list[str]:
+    return [line.strip() for line in str(section_text).splitlines() if line.strip()]
+
+
+def _collect_payload_number_tokens(value: Any) -> set[str]:
+    tokens: set[str] = set()
+    if isinstance(value, dict):
+        for item in value.values():
+            tokens.update(_collect_payload_number_tokens(item))
+        return tokens
+    if isinstance(value, list):
+        for item in value:
+            tokens.update(_collect_payload_number_tokens(item))
+        return tokens
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            if np.isnan(value) or np.isinf(value):
+                return tokens
+        except TypeError:
+            return tokens
+        numeric_value = round(float(value), 2)
+        tokens.add(_normalize_number_token(str(numeric_value)))
+        integer_value = int(round(numeric_value))
+        if np.isclose(numeric_value, integer_value):
+            tokens.add(str(integer_value))
+        return tokens
+    return tokens
+
+
+def _contains_payload_number(text: str, payload_numbers: set[str]) -> bool:
+    for raw_token in re.findall(r"-?\d+(?:,\d{3})*(?:\.\d+)?", text):
+        if _normalize_number_token(raw_token) in payload_numbers:
+            return True
+    return False
+
+
+def _normalize_number_token(token: str) -> str:
+    numeric_value = round(float(token.replace(",", "")), 2)
+    return f"{numeric_value:.2f}".rstrip("0").rstrip(".")
+
+
+def _validate_rank_claim(
+    text: str,
+    payload: dict[str, Any],
+    *,
+    expected_channel: str,
+    keywords: tuple[str, ...],
+    code: str,
+    direction: str,
+) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    channel_names = [str(channel.get("name")) for channel in payload.get("channels", []) if channel.get("name")]
+    sentence_list = _split_sentences(text)
+    matched_expected = False
+    for sentence in sentence_list:
+        lowered_sentence = sentence.lower()
+        mentioned_channels = [
+            channel_name
+            for channel_name in channel_names
+            if _sentence_mentions_channel(lowered_sentence, channel_name)
+        ]
+        if not mentioned_channels:
+            continue
+        if expected_channel in mentioned_channels:
+            matched_expected = True
+        if any(keyword in lowered_sentence for keyword in keywords):
+            if expected_channel not in mentioned_channels:
+                pretty_expected = _humanize_channel_name(expected_channel)
+                pretty_found = ", ".join(_humanize_channel_name(name) for name in mentioned_channels)
+                issues.append(
+                    {
+                        "severity": "error",
+                        "code": code,
+                        "message": f"The response describes `{pretty_found}` as the {direction} channel, but the payload ranks `{pretty_expected}` there.",
+                    }
+                )
+            return issues
+    if not matched_expected:
+        issues.append(
+            {
+                "severity": "warning",
+                "code": f"{code}_missing_reference",
+                "message": f"The response never mentions the payload's {direction} channel `{_humanize_channel_name(expected_channel)}`.",
+            }
+        )
+    return issues
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", str(text)) if part.strip()]
+
+
+def _sentence_mentions_channel(lowered_sentence: str, channel_name: str) -> bool:
+    aliases = {
+        channel_name.lower(),
+        channel_name.replace("_", " ").lower(),
+        _humanize_channel_name(channel_name).lower(),
+    }
+    for alias in aliases:
+        if alias and alias in lowered_sentence:
+            return True
+    return False
+
+
+def _humanize_channel_name(channel_name: str) -> str:
+    parts = [part for part in str(channel_name).replace("_", " ").split() if part]
+    return " ".join(part.capitalize() for part in parts)
