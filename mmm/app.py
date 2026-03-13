@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +43,14 @@ from src.models.ols import OLSModel
 from src.models.pymc_model import PyMCModel
 from src.models.ridge import RidgeModel
 from src.results_helpers import (
+    CHART_ACCENT,
+    CHART_ACCENT_DARK,
+    CHART_ACCENT_DEEP,
+    CHART_LABEL,
+    CHART_NEUTRAL_LIGHT,
+    CHART_SERIES_PALETTE,
     aggregate_time_series_df,
+    apply_chart_theme,
     build_actual_vs_predicted_chart,
     build_labeled_bar_chart,
     build_period_mask,
@@ -115,6 +123,694 @@ HOLDOUT_FRACTION = 0.2
 CURRENT_DATA_LABEL = "Current loaded data"
 
 
+def inject_app_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --mmm-text: #111111;
+            --mmm-border: rgba(17, 17, 17, 0.12);
+            --mmm-border-strong: rgba(214, 158, 46, 0.55);
+            --mmm-shadow: 0 14px 32px rgba(17, 17, 17, 0.08);
+            --mmm-card-bg: rgba(255, 255, 255, 0.92);
+            --mmm-card-bg-strong: #ffffff;
+            --mmm-accent: #d4a017;
+            --mmm-accent-strong: #b7791f;
+            --mmm-accent-soft: rgba(212, 160, 23, 0.14);
+            --mmm-accent-text: #6a4700;
+            --mmm-text-soft: #2f2f2f;
+            --mmm-text-muted: #595959;
+            --mmm-table-header: #fff3c4;
+            --mmm-table-row: #fffdf7;
+            --mmm-surface: #fffdf7;
+            --mmm-surface-alt: #fff8e6;
+            --mmm-surface-strong: #ffe8a3;
+            --mmm-input-bg: #ffffff;
+            --mmm-focus-ring: rgba(212, 160, 23, 0.18);
+        }
+
+        .stApp {
+            background:
+                radial-gradient(circle at top left, rgba(212, 160, 23, 0.10), transparent 30%),
+                linear-gradient(180deg, #fffef8 0%, #fffaf0 100%);
+            color: var(--mmm-text);
+        }
+
+        .stApp,
+        .stApp p,
+        .stApp li,
+        .stApp label,
+        .stApp span,
+        .stApp div {
+            color: var(--mmm-text);
+        }
+
+        .stApp h1,
+        .stApp h2,
+        .stApp h3,
+        .stApp h4,
+        .stApp h5,
+        .stApp h6 {
+            color: var(--mmm-text);
+        }
+
+        .stApp [data-testid="stMarkdownContainer"] p {
+            color: var(--mmm-text-soft);
+        }
+
+        .stApp [data-testid="stCaptionContainer"],
+        .stApp [data-testid="stCaptionContainer"] * {
+            color: var(--mmm-text-muted) !important;
+        }
+
+        .stApp [data-testid="block-container"] {
+            padding-top: 1.5rem;
+            padding-bottom: 2rem;
+            max-width: 1500px;
+        }
+
+        header[data-testid="stHeader"] {
+            display: none;
+        }
+
+        div[data-testid="stToolbar"] {
+            display: none;
+        }
+
+        div[data-testid="stDecoration"] {
+            display: none;
+        }
+
+        #MainMenu {
+            visibility: hidden;
+        }
+
+        footer {
+            visibility: hidden;
+        }
+
+        .mmm-hero,
+        .mmm-step-banner,
+        .mmm-section-intro {
+            border: 1px solid var(--mmm-border);
+            background: linear-gradient(135deg, #fff6da 0%, #fffdf8 62%, #fff2c9 100%);
+            border-radius: 20px;
+            box-shadow: var(--mmm-shadow);
+            padding: 1.25rem 1.4rem;
+            margin-bottom: 1rem;
+        }
+
+        .mmm-hero h1,
+        .mmm-step-banner h2,
+        .mmm-section-intro h3 {
+            margin: 0 0 0.25rem 0;
+            line-height: 1.15;
+            color: var(--mmm-text) !important;
+        }
+
+        .mmm-hero h1 {
+            font-size: clamp(2.4rem, 4vw, 3.4rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+        }
+
+        .mmm-hero p,
+        .mmm-step-banner p,
+        .mmm-section-intro p {
+            margin: 0;
+            color: var(--mmm-text-soft);
+        }
+
+        .mmm-kicker {
+            display: inline-block;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--mmm-accent-text);
+            background: var(--mmm-accent-soft);
+            border-radius: 999px;
+            padding: 0.22rem 0.55rem;
+            margin-bottom: 0.7rem;
+            border: 1px solid rgba(212, 160, 23, 0.18);
+        }
+
+        .mmm-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.65rem;
+            margin: 0.3rem 0 1rem 0;
+        }
+
+        .mmm-chip {
+            min-width: 140px;
+            padding: 0.72rem 0.88rem;
+            border: 1px solid var(--mmm-border);
+            border-radius: 16px;
+            background: var(--mmm-surface);
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+        }
+
+        .mmm-chip-label {
+            display: block;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            color: var(--mmm-text-soft);
+            margin-bottom: 0.18rem;
+        }
+
+        .mmm-chip-value {
+            display: block;
+            font-size: 0.98rem;
+            font-weight: 700;
+            color: var(--mmm-text);
+            line-height: 1.2;
+        }
+
+        .mmm-panel {
+            border: 1px solid var(--mmm-border);
+            border-radius: 18px;
+            padding: 1rem 1.05rem;
+            background: var(--mmm-surface);
+            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+            margin-bottom: 0.85rem;
+        }
+
+        .mmm-panel h4 {
+            margin: 0 0 0.45rem 0;
+            font-size: 1rem;
+            line-height: 1.25;
+            color: var(--mmm-text);
+        }
+
+        .mmm-panel p,
+        .mmm-panel ul {
+            margin: 0;
+            color: var(--mmm-text-soft);
+        }
+
+        .mmm-panel ul {
+            padding-left: 1.1rem;
+        }
+
+        .mmm-sidebar-card {
+            border: 1px solid var(--mmm-border);
+            border-radius: 18px;
+            padding: 0.95rem 1rem;
+            margin-bottom: 0.8rem;
+            background: var(--mmm-surface);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+        }
+
+        .mmm-sidebar-card h3 {
+            margin: 0 0 0.22rem 0;
+            font-size: 1rem;
+            line-height: 1.2;
+            color: var(--mmm-text);
+        }
+
+        .mmm-sidebar-card p {
+            margin: 0;
+            font-size: 0.9rem;
+            color: var(--mmm-text-soft);
+        }
+
+        .stSidebar {
+            background: linear-gradient(180deg, #fffdf6 0%, #fff9ec 100%);
+        }
+
+        .stSidebar,
+        .stSidebar p,
+        .stSidebar label,
+        .stSidebar span,
+        .stSidebar div,
+        .stSidebar h1,
+        .stSidebar h2,
+        .stSidebar h3 {
+            color: var(--mmm-text) !important;
+        }
+
+        .stSidebar [data-testid="stSidebarHeader"] *,
+        .stSidebar [data-testid="stText"],
+        .stSidebar [data-testid="stMarkdownContainer"] p {
+            color: var(--mmm-text-soft) !important;
+        }
+
+        .stApp [data-testid="stMetric"] {
+            border: 1px solid var(--mmm-border);
+            background: var(--mmm-surface);
+            border-radius: 18px;
+            padding: 0.9rem 1rem;
+            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.05);
+        }
+
+        .stApp [data-testid="stMetricLabel"] {
+            font-weight: 700;
+            color: var(--mmm-text-soft);
+        }
+
+        .stApp [data-testid="stMetricValue"] {
+            color: var(--mmm-text);
+        }
+
+        .stApp [data-testid="stExpander"] {
+            border: 1px solid var(--mmm-border);
+            border-radius: 16px;
+            overflow: hidden;
+            background: var(--mmm-surface);
+        }
+
+        .stApp [data-testid="stExpander"] details summary {
+            background: var(--mmm-surface-alt);
+        }
+
+        .stApp [data-testid="stAlert"] {
+            border-radius: 16px;
+            border: 1px solid var(--mmm-border);
+        }
+
+        .stApp [data-testid="stDataFrame"] {
+            border: 1px solid var(--mmm-border);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04);
+            background: transparent !important;
+            --gdg-bg-cell: transparent;
+            --gdg-bg-cell-medium: transparent;
+            --gdg-bg-header: transparent;
+            --gdg-bg-header-has-focus: transparent;
+            --gdg-bg-header-hovered: rgba(212, 160, 23, 0.08);
+            --gdg-bg-search-result: rgba(212, 160, 23, 0.12);
+            --gdg-border-color: rgba(17, 17, 17, 0.08);
+            --gdg-horizontal-border-color: rgba(17, 17, 17, 0.06);
+            --gdg-text-dark: #111111;
+            --gdg-text-medium: #111111;
+            --gdg-text-light: #595959;
+            --gdg-accent-color: rgba(212, 160, 23, 0.16);
+            --gdg-accent-fg: #111111;
+            --gdg-cell-horizontal-padding: 12px;
+        }
+
+        .stApp [data-testid="stDataFrame"] > div,
+        .stApp [data-testid="stDataFrame"] [data-testid="stDataFrameResizable"],
+        .stApp [data-testid="stDataFrame"] [data-testid="stElementToolbar"],
+        .stApp [data-testid="stDataFrame"] [role="grid"],
+        .stApp [data-testid="stDataFrame"] [role="rowgroup"],
+        .stApp [data-testid="stDataFrame"] canvas {
+            background: transparent !important;
+            background-color: transparent !important;
+        }
+
+        .stApp [data-testid="stDataFrame"] [role="columnheader"] {
+            background: transparent !important;
+            background-color: transparent !important;
+            font-weight: 700;
+            color: var(--mmm-text) !important;
+            border-bottom: 1px solid rgba(17, 17, 17, 0.08) !important;
+        }
+
+        .stApp [data-testid="stDataFrame"] [role="rowheader"],
+        .stApp [data-testid="stDataFrame"] [role="gridcell"] {
+            border-color: rgba(17, 17, 17, 0.06) !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            color: var(--mmm-text) !important;
+        }
+
+        .stApp [data-testid="stDataFrame"] [role="gridcell"] {
+            color: var(--mmm-text) !important;
+            background: transparent !important;
+            background-color: transparent !important;
+        }
+
+        .stApp [data-testid="stDataFrame"] *,
+        .stApp [data-testid="stTable"] * {
+            color: var(--mmm-text) !important;
+        }
+
+        .stApp [data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"],
+        .stApp [data-testid="stDataFrame"] [role="row"]:hover [role="rowheader"] {
+            background: rgba(212, 160, 23, 0.08) !important;
+        }
+
+        .stApp [data-testid="stDataFrame"] button,
+        .stApp [data-testid="stDataFrame"] button *,
+        .stApp [data-testid="stDataFrame"] svg {
+            color: var(--mmm-text) !important;
+            fill: var(--mmm-text) !important;
+        }
+
+        .stApp [data-testid="stDataFrame"] a {
+            color: var(--mmm-accent-text) !important;
+        }
+
+        .stApp [data-testid="stTable"] table {
+            width: 100%;
+            border-collapse: collapse;
+            background: transparent !important;
+            border: 1px solid var(--mmm-border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .stApp [data-testid="stTable"] thead th {
+            background: transparent !important;
+            color: var(--mmm-text) !important;
+            border-bottom: 1px solid rgba(17, 17, 17, 0.08) !important;
+            font-weight: 700;
+        }
+
+        .stApp [data-testid="stTable"] tbody td {
+            background: transparent !important;
+            color: var(--mmm-text) !important;
+            border-top: 1px solid rgba(17, 17, 17, 0.05) !important;
+        }
+
+        .stApp [data-testid="stForm"] {
+            border: 1px solid var(--mmm-border);
+            border-radius: 18px;
+            padding: 1.1rem 1.1rem 0.4rem 1.1rem;
+            background: var(--mmm-surface);
+        }
+
+        .stApp [data-testid="stFileUploader"] {
+            border: 2px dashed var(--mmm-border-strong);
+            border-radius: 18px;
+            padding: 0.55rem 0.8rem;
+            background: linear-gradient(180deg, #fffdf7 0%, #fff4d2 100%);
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.9),
+                0 8px 20px rgba(212, 160, 23, 0.08);
+        }
+
+        .stApp [data-testid="stFileUploader"] small,
+        .stApp [data-testid="stFileUploader"] span,
+        .stApp [data-testid="stFileUploader"] label,
+        .stApp [data-testid="stFileUploader"] button {
+            color: var(--mmm-text) !important;
+        }
+
+        .stApp [data-testid="stFileUploader"] section {
+            background: transparent !important;
+        }
+
+        .stApp [data-testid="stFileUploader"] button {
+            background: linear-gradient(135deg, #f7d56a, #e0b332) !important;
+            border: 1px solid rgba(183, 121, 31, 0.18) !important;
+            color: var(--mmm-text) !important;
+            border-radius: 12px !important;
+            box-shadow: 0 8px 18px rgba(212, 160, 23, 0.16) !important;
+        }
+
+        .stApp [data-testid="stFileUploader"] button:hover {
+            background: linear-gradient(135deg, #f3c84b, #d4a017) !important;
+        }
+
+        .stApp [data-testid="stSelectbox"],
+        .stApp [data-testid="stMultiSelect"],
+        .stApp [data-testid="stNumberInput"],
+        .stApp [data-testid="stTextInput"],
+        .stApp [data-testid="stSlider"],
+        .stApp [data-testid="stRadio"] {
+            border-radius: 14px;
+        }
+
+        .stApp [data-testid="stSelectbox"] > div,
+        .stApp [data-testid="stMultiSelect"] > div,
+        .stApp [data-testid="stNumberInput"] > div,
+        .stApp [data-testid="stTextInput"] > div {
+            border-radius: 14px;
+        }
+
+        .stApp [data-baseweb="select"] > div,
+        [data-baseweb="select"] > div,
+        .stApp [data-testid="stNumberInput"] input,
+        .stApp [data-testid="stTextInput"] input,
+        .stApp textarea {
+            border-radius: 14px !important;
+            background: var(--mmm-surface) !important;
+            color: var(--mmm-text) !important;
+            border-color: rgba(17, 17, 17, 0.12) !important;
+        }
+
+        .stApp [data-baseweb="select"] > div,
+        [data-baseweb="select"] > div {
+            background: var(--mmm-input-bg) !important;
+            background-color: #ffffff !important;
+            border: 1px solid rgba(212, 160, 23, 0.28) !important;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.92) !important;
+        }
+
+        .stApp [data-baseweb="select"] [role="combobox"],
+        .stApp [data-baseweb="select"] [data-baseweb="input"],
+        .stApp [data-baseweb="select"] input,
+        [data-baseweb="select"] [role="combobox"],
+        [data-baseweb="select"] [data-baseweb="input"],
+        [data-baseweb="select"] input {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            color: var(--mmm-text) !important;
+        }
+
+        .stApp [data-baseweb="select"] > div:hover,
+        [data-baseweb="select"] > div:hover,
+        .stApp [data-testid="stNumberInput"] input:hover,
+        .stApp [data-testid="stTextInput"] input:hover,
+        .stApp textarea:hover {
+            border-color: rgba(212, 160, 23, 0.42) !important;
+        }
+
+        .stApp [data-baseweb="select"] > div:focus-within,
+        [data-baseweb="select"] > div:focus-within,
+        .stApp [data-testid="stNumberInput"] input:focus,
+        .stApp [data-testid="stTextInput"] input:focus,
+        .stApp textarea:focus {
+            border-color: rgba(212, 160, 23, 0.55) !important;
+            box-shadow: 0 0 0 3px var(--mmm-focus-ring) !important;
+        }
+
+        .stApp [data-baseweb="select"] input,
+        .stApp [data-baseweb="select"] div,
+        .stApp [data-baseweb="select"] span,
+        .stApp [data-baseweb="select"] svg,
+        [data-baseweb="select"] input,
+        [data-baseweb="select"] div,
+        [data-baseweb="select"] span,
+        [data-baseweb="select"] svg {
+            color: var(--mmm-text) !important;
+            fill: var(--mmm-text) !important;
+        }
+
+        .stApp [data-baseweb="select"] input::placeholder,
+        [data-baseweb="select"] input::placeholder {
+            color: var(--mmm-text-muted) !important;
+        }
+
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"],
+        [data-baseweb="select"] [data-baseweb="tag"] {
+            min-width: 170px !important;
+            max-width: 240px !important;
+            background: var(--mmm-surface-strong) !important;
+            border: 1px solid rgba(212, 160, 23, 0.34) !important;
+            border-radius: 10px !important;
+            color: var(--mmm-accent-text) !important;
+            padding: 0.15rem 0.35rem !important;
+        }
+
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+        [data-baseweb="select"] [data-baseweb="tag"] span {
+            color: var(--mmm-accent-text) !important;
+            fill: var(--mmm-accent-text) !important;
+            font-weight: 600;
+            display: inline-block;
+            max-width: 190px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"] svg,
+        [data-baseweb="select"] [data-baseweb="tag"] svg {
+            color: var(--mmm-accent-text) !important;
+            fill: var(--mmm-accent-text) !important;
+        }
+
+        [data-baseweb="popover"] {
+            color: var(--mmm-text) !important;
+        }
+
+        [data-baseweb="popover"] > div,
+        [data-baseweb="popover"] [data-baseweb="menu"],
+        [data-baseweb="popover"] [data-baseweb="menu"] > div,
+        [data-baseweb="popover"] [role="listbox"],
+        [data-baseweb="popover"] [role="presentation"] {
+            background: var(--mmm-surface) !important;
+            background-color: #ffffff !important;
+            border: 1px solid rgba(212, 160, 23, 0.24) !important;
+            border-radius: 14px !important;
+            box-shadow: 0 16px 32px rgba(17, 17, 17, 0.10) !important;
+        }
+
+        div[role="listbox"] {
+            background: var(--mmm-surface) !important;
+            background-color: #ffffff !important;
+            border: 1px solid rgba(212, 160, 23, 0.24) !important;
+            box-shadow: 0 16px 32px rgba(17, 17, 17, 0.10) !important;
+            border-radius: 14px !important;
+        }
+
+        [data-baseweb="popover"] ul,
+        [data-baseweb="popover"] li,
+        [data-baseweb="popover"] [role="option"] > div,
+        [data-baseweb="popover"] [data-baseweb="menu"] ul,
+        [data-baseweb="popover"] [data-baseweb="menu"] li,
+        [data-baseweb="popover"] [data-baseweb="select"] > div {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+        }
+
+        [data-baseweb="popover"] [role="option"],
+        [data-baseweb="popover"] [role="option"] *,
+        [data-baseweb="popover"] [role="listbox"] *,
+        [data-baseweb="popover"] [aria-disabled="true"],
+        [data-baseweb="popover"] [aria-disabled="true"] *,
+        [data-baseweb="popover"] [data-baseweb="menu"] *,
+        [data-baseweb="popover"] [data-baseweb="no-results"] * {
+            color: var(--mmm-text) !important;
+        }
+
+        div[role="option"] {
+            background: var(--mmm-surface) !important;
+            background-color: #ffffff !important;
+            color: var(--mmm-text) !important;
+        }
+
+        div[role="option"]:hover {
+            background: var(--mmm-table-header) !important;
+        }
+
+        div[role="option"][aria-selected="true"] {
+            background: var(--mmm-surface-strong) !important;
+            color: var(--mmm-accent-text) !important;
+        }
+
+        [data-baseweb="popover"] [role="option"][aria-selected="true"] *,
+        [data-baseweb="popover"] [role="option"][aria-selected="true"] {
+            color: var(--mmm-accent-text) !important;
+        }
+
+        [data-baseweb="popover"] input {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            color: var(--mmm-text) !important;
+        }
+
+        [data-baseweb="popover"] input::placeholder {
+            color: var(--mmm-text-muted) !important;
+        }
+
+        .stApp button[kind="primary"],
+        .stApp button[kind="secondary"],
+        .stSidebar [data-testid="stButton"] button {
+            border-radius: 14px;
+            min-height: 2.9rem;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+
+        .stApp button[kind="secondary"] {
+            border: 1px solid var(--mmm-border);
+            background: var(--mmm-surface);
+            color: var(--mmm-text);
+        }
+
+        .stApp button[kind="primary"] {
+            background: linear-gradient(135deg, #f3c84b, #d4a017);
+            border: 1px solid rgba(183, 121, 31, 0.18);
+            box-shadow: 0 10px 24px rgba(212, 160, 23, 0.20);
+            color: #111111;
+        }
+
+        .stApp button[kind="primary"]:hover,
+        .stApp button[kind="secondary"]:hover,
+        .stSidebar [data-testid="stButton"] button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.10);
+        }
+
+        .stSidebar [data-testid="stButton"] button {
+            justify-content: flex-start;
+            padding-left: 0.95rem;
+            background: var(--mmm-surface);
+            border: 1px solid rgba(49, 51, 63, 0.12);
+            color: var(--mmm-text);
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+        }
+
+        .stSidebar button[kind="primary"] {
+            background: linear-gradient(135deg, #f3c84b, #d4a017);
+            color: #111111;
+            border-color: rgba(183, 121, 31, 0.18);
+            box-shadow: 0 12px 24px rgba(212, 160, 23, 0.20);
+        }
+
+        .stSidebar [data-testid="stVerticalBlock"] > div {
+            gap: 0.45rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_app_header() -> None:
+    st.title("Marketing Mix Modeling")
+    st.caption(
+        "A guided workspace for data validation, model fit, business interpretation, and AI-assisted communication."
+    )
+
+
+def render_step_banner(selected_step: str) -> None:
+    _ = selected_step
+    return
+
+
+def render_section_intro(title: str, caption: str, *, kicker: str = "Section") -> None:
+    _ = kicker
+    st.subheader(title)
+    st.caption(caption)
+
+
+def render_badge_row(items: list[tuple[str, str | None]]) -> None:
+    parts = [f"**{escape(str(label))}**: {escape(str(value))}" for label, value in items if value not in {None, ""}]
+    if parts:
+        st.caption(" • ".join(parts))
+
+
+def render_sidebar_section_card(
+    container: Any,
+    title: str,
+    caption: str,
+    *,
+    kicker: str = "Workflow",
+) -> None:
+    container.markdown(f"**{title}**")
+    container.caption(caption)
+
+
+def render_clean_dataframe(
+    df: pd.DataFrame,
+    *,
+    column_config: dict[str, Any] | None = None,
+) -> None:
+    st.dataframe(
+        df,
+        column_config=column_config or build_table_column_config(df.columns),
+        width="stretch",
+        hide_index=True,
+    )
+
+
 def is_pymc_available() -> bool:
     try:
         import pymc  # noqa: F401
@@ -131,6 +827,20 @@ def is_anthropic_available() -> bool:
     return True
 
 
+def build_business_safe_prior_config(prior_config: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(prior_config)
+    sanitized["channel_prior_family"] = "HalfNormal"
+    channel_overrides = prior_config.get("channel_prior_overrides", {})
+    sanitized["channel_prior_overrides"] = {
+        channel: {
+            **dict(override),
+            "family": "HalfNormal",
+        }
+        for channel, override in channel_overrides.items()
+    }
+    return sanitized
+
+
 def render_ai_applied_setup_summary(
     setup_recommendations: dict[str, Any],
 ) -> None:
@@ -140,9 +850,10 @@ def render_ai_applied_setup_summary(
     transform_recommendations = setup_recommendations.get("transform_recommendations", {})
     prior_recommendations = setup_recommendations.get("prior_recommendations", {})
 
-    st.subheader("AI applied this setup because")
-    st.caption(
-        "This summary explains how the AI evaluation of the ingested dataset changed the working MMM configuration."
+    render_section_intro(
+        "AI applied this setup because",
+        "This summary explains how the AI evaluation of the ingested dataset changed the working MMM configuration.",
+        kicker="Assistant",
     )
     summary_text = str(setup_recommendations.get("executive_summary", "")).strip()
     if summary_text:
@@ -166,7 +877,7 @@ def render_ai_applied_setup_summary(
     col2.markdown("**Transform and prior setup applied**")
     col2.write(
         "- Default channel prior family: "
-        + f"`{st.session_state['pymc_prior_config'].get('channel_prior_family', 'HalfNormal')}`"
+        + f"`{build_business_safe_prior_config(st.session_state['pymc_prior_config']).get('channel_prior_family', 'HalfNormal')}`"
     )
     col2.write(
         "- Regularization alpha: "
@@ -221,7 +932,7 @@ def render_ai_applied_setup_summary(
         st.caption(
             "Columns with `patchy` or `healthy` coverage are kept automatically. Columns tagged `sparse` are excluded from the applied selection."
         )
-        st.dataframe(pd.DataFrame(selection_rule_rows), width="stretch")
+        render_clean_dataframe(pd.DataFrame(selection_rule_rows))
 
     excluded_rows = []
     for column in applied_selection_summary.get("sparse_excluded_channels", []):
@@ -244,7 +955,7 @@ def render_ai_applied_setup_summary(
         )
     if excluded_rows:
         st.markdown("**Excluded by coverage rule**")
-        st.dataframe(pd.DataFrame(excluded_rows), width="stretch")
+        render_clean_dataframe(pd.DataFrame(excluded_rows))
 
     reasoning_rows = []
     for channel in st.session_state.get("channel_cols", []):
@@ -272,11 +983,7 @@ def render_ai_applied_setup_summary(
         )
     if reasoning_rows:
         reasoning_df = pd.DataFrame(reasoning_rows)
-        st.dataframe(
-            reasoning_df,
-            column_config=build_table_column_config(reasoning_df.columns),
-            width="stretch",
-        )
+        render_clean_dataframe(reasoning_df)
 
     quality_findings = setup_recommendations.get("data_quality_findings", [])
     completion_actions = setup_recommendations.get("completion_actions", [])
@@ -450,8 +1157,11 @@ def build_saturation_curve_chart(
     saturation_type: dict[str, str],
     saturation_params: dict[str, dict[str, float]],
     granularity: str,
+    *,
+    facet_by_channel: bool = False,
 ) -> alt.Chart | None:
     curve_rows: list[dict[str, Any]] = []
+    marker_rows: list[dict[str, Any]] = []
     scale_factor = infer_granularity_scale_factor(df[date_col], granularity)
     for channel in channel_names:
         aggregated_spend_df = aggregate_time_series_df(
@@ -476,6 +1186,19 @@ def build_saturation_curve_chart(
         else:
             continue
 
+        average_spend = float(aggregated_spend_df[channel].mean()) if not aggregated_spend_df.empty else 0.0
+        if sat_kind == "hill":
+            params = saturation_params.get(channel, {"alpha": 1.0, "k": 1.0})
+            average_response = float(
+                hill_saturation(
+                    np.asarray([average_spend], dtype=np.float64),
+                    float(params.get("alpha", 1.0)),
+                    max(float(params.get("k", 1.0)) * scale_factor, 0.1),
+                )[0]
+            )
+        else:
+            average_response = float(log_saturation(np.asarray([average_spend], dtype=np.float64))[0])
+
         for spend_value, response_value in zip(spend_grid, response):
             curve_rows.append(
                 {
@@ -486,18 +1209,89 @@ def build_saturation_curve_chart(
                     "granularity": granularity,
                 }
             )
+        marker_rows.append(
+            {
+                "channel": channel,
+                "spend": average_spend,
+                "response": average_response,
+                "label": f"{channel} avg",
+            }
+        )
 
     if not curve_rows:
         return None
 
     curve_df = pd.DataFrame(curve_rows)
-    return (
+    marker_df = pd.DataFrame(marker_rows)
+    if facet_by_channel:
+        line_chart = (
+            alt.Chart(curve_df)
+            .mark_line()
+            .encode(
+                x=alt.X("spend:Q", title="Spend"),
+                y=alt.Y("response:Q", title="Transformed response"),
+                color=alt.Color(
+                    "saturation:N",
+                    title="Curve type",
+                    scale=alt.Scale(
+                        domain=["hill", "log"],
+                        range=[CHART_ACCENT_DARK, CHART_NEUTRAL_LIGHT],
+                    ),
+                ),
+                tooltip=[
+                    alt.Tooltip("channel:N", title="Channel"),
+                    alt.Tooltip("saturation:N", title="Curve type"),
+                    alt.Tooltip("granularity:N", title="Granularity"),
+                    alt.Tooltip("spend:Q", title="Spend", format=",.2f"),
+                    alt.Tooltip("response:Q", title="Response", format=",.4f"),
+                ],
+            )
+        )
+        point_chart = (
+            alt.Chart(marker_df)
+            .mark_point(filled=True, size=85)
+            .encode(
+                x=alt.X("spend:Q", title="Spend"),
+                y=alt.Y("response:Q", title="Transformed response"),
+                color=alt.value(CHART_ACCENT),
+                tooltip=[
+                    alt.Tooltip("channel:N", title="Channel"),
+                    alt.Tooltip("spend:Q", title="Average spend", format=",.2f"),
+                    alt.Tooltip("response:Q", title="Average response", format=",.4f"),
+                ],
+            )
+        )
+        label_chart = (
+            alt.Chart(marker_df)
+            .mark_text(dx=8, dy=-8, fontWeight="bold")
+            .encode(
+                x=alt.X("spend:Q", title="Spend"),
+                y=alt.Y("response:Q", title="Transformed response"),
+                color=alt.value(CHART_LABEL),
+                text=alt.Text("label:N"),
+            )
+        )
+        return apply_chart_theme(
+            (line_chart + point_chart + label_chart)
+            .facet(
+                facet=alt.Facet("channel:N", title=None, header=alt.Header(labelFontWeight="bold")),
+                columns=2,
+            )
+            .resolve_scale(x="independent", y="independent")
+            .properties(title=f"Saturation curves ({granularity})")
+        )
+
+    line_chart = (
         alt.Chart(curve_df)
         .mark_line()
         .encode(
             x=alt.X("spend:Q", title="Spend"),
             y=alt.Y("response:Q", title="Transformed response"),
-            color=alt.Color("channel:N", title="Channel"),
+            color=alt.Color(
+                "channel:N",
+                title="Channel",
+                scale=alt.Scale(range=CHART_SERIES_PALETTE),
+            ),
             strokeDash=alt.StrokeDash("saturation:N", title="Curve type"),
             tooltip=[
                 alt.Tooltip("channel:N", title="Channel"),
@@ -509,6 +1303,39 @@ def build_saturation_curve_chart(
         )
         .properties(title=f"Saturation curves ({granularity})", height=320, width="container")
     )
+    point_chart = (
+        alt.Chart(marker_df)
+        .mark_point(filled=True, size=85)
+        .encode(
+            x=alt.X("spend:Q", title="Spend"),
+            y=alt.Y("response:Q", title="Transformed response"),
+            color=alt.Color(
+                "channel:N",
+                title="Channel",
+                scale=alt.Scale(range=CHART_SERIES_PALETTE),
+            ),
+            tooltip=[
+                alt.Tooltip("channel:N", title="Channel"),
+                alt.Tooltip("spend:Q", title="Average spend", format=",.2f"),
+                alt.Tooltip("response:Q", title="Average response", format=",.4f"),
+            ],
+        )
+    )
+    label_chart = (
+        alt.Chart(marker_df)
+        .mark_text(dx=8, dy=-8, fontWeight="bold")
+        .encode(
+            x=alt.X("spend:Q", title="Spend"),
+            y=alt.Y("response:Q", title="Transformed response"),
+            color=alt.Color(
+                "channel:N",
+                title="Channel",
+                scale=alt.Scale(range=CHART_SERIES_PALETTE),
+            ),
+            text=alt.Text("label:N"),
+        )
+    )
+    return apply_chart_theme(line_chart + point_chart + label_chart)
 
 
 def get_step_status(step_name: str) -> str:
@@ -526,18 +1353,16 @@ def get_step_status(step_name: str) -> str:
 
 
 def build_step_label(step_number: int, step_name: str) -> str:
-    status = get_step_status(step_name)
-    if status == "ready":
-        return f"{step_number}. {step_name}"
-    return f"{step_number}. {step_name} ({status})"
+    return f"{step_number}. {step_name}"
 
 
 def render_sidebar_step_menu() -> str:
     ordered_steps = ["Data", "Overview", "Config", "Priors", "Fit", "Results", "AI"]
     current_step = st.session_state.get("current_step", "Data")
-    st.sidebar.subheader("Browse")
-    st.sidebar.caption(
-        "Click a step to open it. Steps with missing prerequisites still open and explain what is needed next."
+    render_sidebar_section_card(
+        st.sidebar,
+        "Browse",
+        "Click a step to open it. Steps with missing prerequisites still open and explain what is needed next.",
     )
 
     for idx, step_name in enumerate(ordered_steps):
@@ -553,9 +1378,19 @@ def render_sidebar_step_menu() -> str:
 
     selected_step = st.session_state.get("current_step", current_step)
     if selected_step in ordered_steps:
-        st.sidebar.caption(STEP_DESCRIPTIONS[selected_step])
+        render_sidebar_section_card(
+            st.sidebar,
+            selected_step,
+            STEP_DESCRIPTIONS[selected_step],
+            kicker="Current step",
+        )
     else:
-        st.sidebar.caption("Choose a workflow step to continue the guided modeling flow.")
+        render_sidebar_section_card(
+            st.sidebar,
+            "Pick a step",
+            "Choose a workflow step to continue the guided modeling flow.",
+            kicker="Current step",
+        )
     return selected_step
 
 
@@ -585,9 +1420,10 @@ def format_saved_session_option(
 
 def render_session_controls() -> None:
     st.sidebar.divider()
-    st.sidebar.subheader("Session")
-    st.sidebar.caption(
-        "Save the current MMM state locally, reload a previous run, or clear the current working state."
+    render_sidebar_section_card(
+        st.sidebar,
+        "Session",
+        "Save the current MMM state locally, reload a previous run, or clear the current working state.",
     )
 
     has_state = has_persistable_state(st.session_state)
@@ -668,9 +1504,11 @@ def render_session_controls() -> None:
 
 def render_info_sidebar_section() -> None:
     st.sidebar.divider()
-    st.sidebar.subheader("Guide")
-    st.sidebar.caption(
-        "Open the MMM guide for model selection, transform choices, and result interpretation."
+    render_sidebar_section_card(
+        st.sidebar,
+        "Guide",
+        "Open the MMM guide for model selection, transform choices, and result interpretation.",
+        kicker="Reference",
     )
     if st.sidebar.button(
         "Open guide",
@@ -790,7 +1628,11 @@ def default_channel_selection(columns: list[str], date_col: str | None, target_c
 
 
 def render_data_tab() -> None:
-    st.caption("Start here. Load a CSV, confirm the date, target, and spend columns, then validate the dataset before moving on.")
+    render_section_intro(
+        "Load and validate your dataset",
+        "Start here. Load a CSV, confirm the date, target, and spend columns, then validate the dataset before moving on.",
+        kicker="Start",
+    )
     last_data_message = st.session_state.get("last_data_message")
     if isinstance(last_data_message, dict):
         message_level = last_data_message.get("level", "info")
@@ -822,6 +1664,13 @@ def render_data_tab() -> None:
         st.info(f"Column names were normalized to snake_case: {renamed_pairs}{extra_text}.")
 
     columns = list(raw_df.columns)
+    render_badge_row(
+        [
+            ("Source", st.session_state.get("loaded_source") or CURRENT_DATA_LABEL),
+            ("Rows", f"{len(raw_df):,}"),
+            ("Columns", str(len(columns))),
+        ]
+    )
     current_date = st.session_state.get("date_col")
     current_target = st.session_state.get("target_col")
     current_channels = [
@@ -942,17 +1791,29 @@ def render_data_tab() -> None:
     if st.session_state.get("valid") and st.session_state.get("df") is not None:
         df = st.session_state["df"]
         grain = infer_grain(df[st.session_state["date_col"]])
-        st.caption(
-            f"Date range: {df[st.session_state['date_col']].min().date()} to {df[st.session_state['date_col']].max().date()} — {len(df)} rows"
+        render_section_intro(
+            "Validated preview",
+            "Review the cleaned dataset before moving on to setup or fitting.",
+            kicker="Preview",
         )
-        if grain:
-            st.caption(f"Grain: {grain}")
+        render_badge_row(
+            [
+                (
+                    "Date range",
+                    f"{df[st.session_state['date_col']].min().date()} to {df[st.session_state['date_col']].max().date()}",
+                ),
+                ("Rows", f"{len(df):,}"),
+                ("Grain", grain.title() if grain else "Unknown"),
+                ("Channels", str(len(st.session_state["channel_cols"]))),
+                ("Controls", str(len(st.session_state["control_cols"]))),
+            ]
+        )
         preview_cols = [
             st.session_state["date_col"],
             st.session_state["target_col"],
             *st.session_state["channel_cols"],
         ]
-        st.dataframe(df[preview_cols].head(10), width="stretch")
+        render_clean_dataframe(df[preview_cols].head(10))
 
         with st.expander("AI setup assistant", expanded=False):
             st.caption(
@@ -1039,7 +1900,7 @@ def render_data_tab() -> None:
                     )
                 if column_reasoning_rows:
                     st.markdown("**Column selection reasoning**")
-                    st.dataframe(pd.DataFrame(column_reasoning_rows), width="stretch")
+                    render_clean_dataframe(pd.DataFrame(column_reasoning_rows))
 
                 findings = setup_recommendations.get("data_quality_findings", [])
                 if findings:
@@ -1068,7 +1929,7 @@ def render_data_tab() -> None:
                     )
                 if transform_rows:
                     st.markdown("**Suggested transforms**")
-                    st.dataframe(pd.DataFrame(transform_rows), width="stretch")
+                    render_clean_dataframe(pd.DataFrame(transform_rows))
 
                 prior_rows = []
                 channel_prior_recommendations = (
@@ -1086,7 +1947,7 @@ def render_data_tab() -> None:
                     )
                 if prior_rows:
                     st.markdown("**Suggested priors**")
-                    st.dataframe(pd.DataFrame(prior_rows), width="stretch")
+                    render_clean_dataframe(pd.DataFrame(prior_rows))
 
 
 def render_config_tab() -> None:
@@ -1094,7 +1955,11 @@ def render_config_tab() -> None:
         st.warning("Load and validate data in the Data tab first.")
         return
 
-    st.caption("Set the media transforms here. A safe starting point is Geometric adstock plus Log saturation for every channel.")
+    render_section_intro(
+        "Tune media transforms",
+        "Set the media transforms here. A safe starting point is Geometric adstock plus Log saturation for every channel.",
+        kicker="Configuration",
+    )
     render_definitions_expander(
         "Definitions for this tab",
         [
@@ -1121,6 +1986,13 @@ def render_config_tab() -> None:
     df = st.session_state["df"]
     channel_cols = st.session_state["channel_cols"]
     control_cols = st.session_state["control_cols"]
+    render_badge_row(
+        [
+            ("Channels", str(len(channel_cols))),
+            ("Controls", str(len(control_cols))),
+            ("Transforms applied", "Yes" if st.session_state.get("transforms_applied") else "No"),
+        ]
+    )
 
     ai_setup_recommendations = st.session_state.get("ai_setup_recommendations")
     if ai_setup_recommendations:
@@ -1143,8 +2015,17 @@ def render_config_tab() -> None:
         current_saturation = st.session_state["saturation_type"].get(ch, "log")
         current_theta = float(st.session_state["adstock_params"].get(ch, 0.3))
         current_sat = st.session_state["saturation_params"].get(ch, {"alpha": 1.0, "k": 1.0})
-
-        st.subheader(ch)
+        non_zero_pct = float((df[ch].astype(float) > 0).mean() * 100)
+        st.markdown(f"**{ch}**")
+        render_badge_row(
+            [
+                ("Average spend", format_number(float(df[ch].mean()))),
+                ("Median spend", format_number(float(df[ch].median()))),
+                ("Non-zero periods", f"{non_zero_pct:.0f}%"),
+                ("Adstock", current_adstock.title()),
+                ("Saturation", current_saturation.title()),
+            ]
+        )
         col1, col2 = st.columns(2)
         adstock_label = col1.selectbox(
             "Adstock",
@@ -1203,6 +2084,13 @@ def render_config_tab() -> None:
         else:
             saturation_params[ch] = {"alpha": 1.0, "k": 0.0}
 
+        st.divider()
+
+    render_section_intro(
+        "Regularization",
+        "Use these controls to smooth unstable linear coefficients before fitting Ridge, Lasso, or ElasticNet.",
+        kicker="Stability",
+    )
     st.session_state["reg_alpha"] = st.number_input(
         "Regularization alpha",
         min_value=0.0,
@@ -1247,11 +2135,15 @@ def render_priors_tab() -> None:
         st.warning("Load and validate data in the Data tab first.")
         return
 
-    st.caption("Set the Bayesian assumptions here before fitting PyMC. If you are unsure, keep the defaults and fit once before tuning.")
+    render_section_intro(
+        "Set Bayesian priors",
+        "Set the Bayesian assumptions here before fitting PyMC. If you are unsure, keep the defaults and fit once before tuning.",
+        kicker="Bayesian setup",
+    )
     render_definitions_expander(
         "Definitions for this tab",
         [
-            ("Intercept mean", "Starting assumption for the baseline level of the target before channel effects are added."),
+            ("Intercept mean", "Starting assumption for the model baseline before channel effects are added. In business terms, read the bounded baseline contribution in Results rather than the raw intercept alone."),
             ("Prior family", "Distribution shape used before the model sees the data."),
             ("Sigma scale", "How wide or restrictive a prior should be. Higher values allow more uncertainty."),
             ("Draws, tune, chains", "Sampling settings for PyMC. More of them can improve stability but take longer."),
@@ -1261,8 +2153,7 @@ def render_priors_tab() -> None:
     render_reference_values_expander(
         "Reference values for priors",
         [
-            ("Channel prior family", "HalfNormal by default", "Use this when media should not have a negative effect."),
-            ("Channel prior family", "Normal when unsure", "Use this when you want to allow positive or negative media effects."),
+            ("Channel prior family", "HalfNormal only", "Use this to keep paid media effects non-negative in the business-facing MMM setup."),
             ("Intercept sigma scale", "0.5 to 1.5 typical", "Lower values make the baseline prior tighter and higher values make it looser."),
             ("Channel sigma scale", "0.3 to 1.5 common range", "Lower values shrink channel effects more strongly before the data updates them."),
             ("Control sigma scale", "0.5 to 2.0 common range", "Controls often need more flexibility because they can move in both directions."),
@@ -1271,11 +2162,22 @@ def render_priors_tab() -> None:
             ("Chains", "2 to 4 for robustness", "Use at least 2 chains when you want a basic convergence check. More chains improve reliability but increase runtime."),
         ],
     )
-    current_prior = st.session_state["pymc_prior_config"]
+    current_prior = build_business_safe_prior_config(st.session_state["pymc_prior_config"])
     current_sampler = st.session_state["pymc_sampler_config"]
     current_reasoning = st.session_state.get("pymc_prior_reasoning", {})
+    if current_prior != st.session_state["pymc_prior_config"]:
+        st.session_state["pymc_prior_config"] = current_prior
+    render_badge_row(
+        [
+            ("Channels", str(len(st.session_state.get("channel_cols", [])))),
+            ("Default family", str(current_prior.get("channel_prior_family", "HalfNormal"))),
+            ("Draws", str(current_sampler.get("draws", 300))),
+            ("Chains", str(current_sampler.get("chains", 1))),
+        ]
+    )
 
     with st.form("pymc_priors_form"):
+        st.markdown("**Shared prior defaults**")
         intercept_mode = st.selectbox(
             "Intercept mean",
             options=["Use data mean", "Set manually"],
@@ -1293,9 +2195,9 @@ def render_priors_tab() -> None:
 
         channel_prior_family = st.selectbox(
             "Channel prior family",
-            options=["HalfNormal", "Normal"],
-            index=0 if current_prior.get("channel_prior_family", "HalfNormal") == "HalfNormal" else 1,
-            help="HalfNormal forces non-negative channel effects. Normal allows positive or negative channel effects.",
+            options=["HalfNormal"],
+            index=0,
+            help="Paid media priors stay non-negative so channel effects remain business-safe and interpretable.",
         )
         pri_col1, pri_col2 = st.columns(2)
         intercept_sigma_scale = pri_col1.number_input(
@@ -1329,34 +2231,38 @@ def render_priors_tab() -> None:
             help="Starting uncertainty for the model residual error term.",
         )
 
-        st.markdown("**Channel prior overrides**")
         channel_prior_overrides = current_prior.get("channel_prior_overrides", {})
         channel_override_values: dict[str, dict[str, Any]] = {}
-        for channel in st.session_state.get("channel_cols", []):
-            override = channel_prior_overrides.get(channel, {})
-            override_col1, override_col2 = st.columns(2)
-            family = override_col1.selectbox(
-                f"Prior family for {channel}",
-                options=["HalfNormal", "Normal"],
-                index=0 if override.get("family", current_prior.get("channel_prior_family", "HalfNormal")) == "HalfNormal" else 1,
-                key=f"prior_family_override_{channel}",
-                help="Override the default prior family for this specific channel.",
-            )
-            sigma_scale = override_col2.number_input(
-                f"Sigma scale for {channel}",
-                min_value=0.1,
-                value=float(override.get("sigma_scale", current_prior.get("channel_sigma_scale", 1.0))),
-                step=0.1,
-                key=f"prior_sigma_override_{channel}",
-                help="Override the default prior width for this specific channel.",
-            )
-            channel_override_values[channel] = {
-                "family": family,
-                "sigma_scale": float(sigma_scale),
-            }
-            if current_reasoning.get(channel):
-                st.caption(f"{channel} reasoning: {current_reasoning[channel]}")
+        with st.expander(
+            "Channel prior overrides",
+            expanded=len(st.session_state.get("channel_cols", [])) <= 2,
+        ):
+            for channel in st.session_state.get("channel_cols", []):
+                override = channel_prior_overrides.get(channel, {})
+                override_col1, override_col2 = st.columns(2)
+                family = override_col1.selectbox(
+                    f"Prior family for {channel}",
+                    options=["HalfNormal"],
+                    index=0,
+                    key=f"prior_family_override_{channel}",
+                    help="Channel priors stay HalfNormal so paid media effects remain non-negative.",
+                )
+                sigma_scale = override_col2.number_input(
+                    f"Sigma scale for {channel}",
+                    min_value=0.1,
+                    value=float(override.get("sigma_scale", current_prior.get("channel_sigma_scale", 1.0))),
+                    step=0.1,
+                    key=f"prior_sigma_override_{channel}",
+                    help="Override the default prior width for this specific channel.",
+                )
+                channel_override_values[channel] = {
+                    "family": family,
+                    "sigma_scale": float(sigma_scale),
+                }
+                if current_reasoning.get(channel):
+                    st.caption(f"{channel} reasoning: {current_reasoning[channel]}")
 
+        st.markdown("**Sampler settings**")
         sampler_col1, sampler_col2, sampler_col3 = st.columns(3)
         draws = sampler_col1.number_input(
             "Draws",
@@ -1423,7 +2329,11 @@ def render_fit_tab() -> None:
         st.warning("Apply transforms in the Config tab first.")
         return
 
-    st.caption("Fit the models here. Start with OLS and Ridge for a quick baseline, then compare them with Lasso, ElasticNet, and PyMC.")
+    render_section_intro(
+        "Fit and compare models",
+        "Fit the models here. Start with OLS and Ridge for a quick baseline, then compare them with Lasso, ElasticNet, and PyMC.",
+        kicker="Modeling",
+    )
     render_definitions_expander(
         "Definitions for this tab",
         [
@@ -1438,6 +2348,13 @@ def render_fit_tab() -> None:
     if not is_pymc_available():
         available_models = [model_name for model_name in available_models if model_name != "PyMC"]
         st.info("PyMC is not installed in this environment, so only the frequentist models are available.")
+    render_badge_row(
+        [
+            ("Available models", str(len(available_models))),
+            ("Currently fitted", str(len(st.session_state.get("model_results", {})))),
+            ("Transforms ready", "Yes"),
+        ]
+    )
     selected_models = st.multiselect(
         "Models to fit",
         options=available_models,
@@ -1446,14 +2363,17 @@ def render_fit_tab() -> None:
     )
     st.info("PyMC uses the Priors tab settings. Lasso and ElasticNet use the regularization settings from Config.")
 
-    fit_selected = st.button(
+    action_col1, action_col2 = st.columns(2)
+    fit_selected = action_col1.button(
         "Fit selected",
         type="primary",
         help="Run only the models currently selected in the list above.",
+        use_container_width=True,
     )
-    fit_all = st.button(
+    fit_all = action_col2.button(
         "Fit all",
         help="Run all available model types on the current transformed dataset.",
+        use_container_width=True,
     )
 
     models_to_run = available_models if fit_all else selected_models if fit_selected else []
@@ -1485,7 +2405,11 @@ def render_fit_tab() -> None:
                     kwargs["reg_alpha"] = st.session_state["reg_alpha"]
                     kwargs["l1_ratio"] = st.session_state["l1_ratio"]
                 if model_name == "PyMC":
-                    kwargs["prior_config"] = st.session_state["pymc_prior_config"]
+                    sanitized_prior_config = build_business_safe_prior_config(
+                        st.session_state["pymc_prior_config"]
+                    )
+                    st.session_state["pymc_prior_config"] = sanitized_prior_config
+                    kwargs["prior_config"] = sanitized_prior_config
                     kwargs["sampler_config"] = st.session_state["pymc_sampler_config"]
                     st.info("PyMC can take longer than OLS and Ridge.")
                 result = model.fit(X, y, raw_spend=raw_spend, **kwargs)
@@ -1628,7 +2552,11 @@ def render_results_tab() -> None:
         st.info("Fit at least one model in the Fit tab to see results.")
         return
 
-    st.caption("Read the outputs in order. Start with the model comparison, then use the three sections below to answer what is happening, why, and what to do next.")
+    render_section_intro(
+        "Read the results in order",
+        "Start with the model comparison, then use the three sections below to answer what is happening, why, and what to do next.",
+        kicker="Results",
+    )
     render_definitions_expander(
         "Definitions for this tab",
         [
@@ -1656,7 +2584,13 @@ def render_results_tab() -> None:
 
     model_names = list(st.session_state["model_results"].keys())
     current_model = st.session_state.get("selected_model") or model_names[0]
-    selected_model = st.selectbox(
+    loaded_source = st.session_state.get("loaded_source", "unknown_source")
+    date_col = st.session_state["date_col"]
+    date_series = st.session_state["df"][date_col]
+    period_options = ["All data", "Last 4 weeks", "Last 8 weeks", "Last 12 weeks", "Last 26 weeks"]
+    previous_period = st.session_state.get("results_period", "All data")
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    selected_model = filter_col1.selectbox(
         "View model",
         options=model_names,
         index=model_names.index(current_model),
@@ -1664,12 +2598,7 @@ def render_results_tab() -> None:
     )
     st.session_state["selected_model"] = selected_model
     result = st.session_state["model_results"][selected_model]
-    loaded_source = st.session_state.get("loaded_source", "unknown_source")
-    date_col = st.session_state["date_col"]
-    date_series = st.session_state["df"][date_col]
-    period_options = ["All data", "Last 4 weeks", "Last 8 weeks", "Last 12 weeks", "Last 26 weeks"]
-    previous_period = st.session_state.get("results_period", "All data")
-    selected_period = st.selectbox(
+    selected_period = filter_col2.selectbox(
         "Display period",
         options=period_options,
         index=period_options.index(previous_period) if previous_period in period_options else 0,
@@ -1682,7 +2611,7 @@ def render_results_tab() -> None:
         "results_visual_granularity",
         get_default_time_granularity(date_series),
     )
-    selected_visual_granularity = st.selectbox(
+    selected_visual_granularity = filter_col3.selectbox(
         "Visual granularity",
         options=granularity_options,
         index=granularity_options.index(previous_visual_granularity)
@@ -1710,11 +2639,17 @@ def render_results_tab() -> None:
         residual_share_abs = 0.0
 
     default_visual_channels = st.session_state.get("selected_visual_channels") or result.channel_names
-    selected_visual_channels = st.multiselect(
+    controls_col1, controls_col2 = st.columns((3, 1))
+    selected_visual_channels = controls_col1.multiselect(
         "Variables shown in charts",
         options=result.channel_names,
         default=[channel for channel in default_visual_channels if channel in result.channel_names],
         help="Choose which channels appear in the charts and breakdown tables.",
+    )
+    show_baseline = controls_col2.checkbox(
+        "Show baseline and unexplained components",
+        value=bool(st.session_state.get("show_baseline_visual", True)),
+        help="Include bounded baseline and unexplained components in the visual summaries.",
     )
     st.session_state["selected_visual_channels"] = selected_visual_channels or result.channel_names
     visible_channels = st.session_state["selected_visual_channels"]
@@ -1746,17 +2681,22 @@ def render_results_tab() -> None:
         channel for channel in visible_channels
         if float(result.coefficients.get(channel, 0.0)) < 0.0
     ]
-    show_baseline = st.checkbox(
-        "Show baseline and unexplained components",
-        value=bool(st.session_state.get("show_baseline_visual", True)),
-        help="Include bounded baseline and unexplained components in the visual summaries.",
-    )
     st.session_state["show_baseline_visual"] = show_baseline
+    render_badge_row(
+        [
+            ("Source", loaded_source),
+            ("Visible channels", f"{len(visible_channels)} of {len(result.channel_names)}"),
+            ("Period", selected_period),
+            ("Granularity", selected_visual_granularity),
+        ]
+    )
 
-    st.subheader("Model comparison")
-    st.caption("Compare the fitted models first. Use this section to see whether the ranking and fit quality are broadly consistent across methods.")
+    render_section_intro(
+        "Model comparison",
+        "Compare the fitted models first. Use this section to see whether the ranking and fit quality are broadly consistent across methods.",
+    )
     comparison_df = build_model_comparison_df()
-    st.dataframe(comparison_df, width="stretch")
+    render_clean_dataframe(comparison_df)
     st.caption("Model comparison table. In-sample columns describe the final fitted model. Holdout columns describe a time-based validation split using the latest 20% of periods.")
     st.info(
         "Business note: the contribution, baseline, and unexplained values below use a bounded decomposition for stakeholder readability. Negative raw components are clipped at zero and rescaled to actual leads."
@@ -1770,8 +2710,8 @@ def render_results_tab() -> None:
             }
             for name in model_names
         }
-    )
-    st.dataframe(coefficient_df, width="stretch")
+    ).rename_axis("Channel").reset_index()
+    render_clean_dataframe(coefficient_df)
     st.caption("Coefficient comparison table. Use it to compare direction and relative strength across models.")
 
     cpl_df = pd.DataFrame(
@@ -1782,16 +2722,18 @@ def render_results_tab() -> None:
             }
             for name in model_names
         }
-    )
-    st.dataframe(cpl_df, width="stretch")
+    ).rename_axis("Channel").reset_index()
+    render_clean_dataframe(cpl_df)
     st.caption("CPL comparison table. Lower CPL means the channel is more efficient in that model. `N/A` means the model assigned zero or negative attributed leads to that channel in the selected fit.")
 
     best_name, best_value = pick_best_channel(all_cpl_map)
     best_visible_name, best_visible_value = pick_best_channel(visible_cpl_map)
     fitted_at = st.session_state["model_results_meta"].get(selected_model, {}).get("fitted_at")
 
-    st.subheader("What is happening?")
-    st.caption("Use this section for the top-line picture. It compares actual leads with a bounded business-facing decomposition into media contribution, baseline contribution, and unexplained gap.")
+    render_section_intro(
+        "What is happening?",
+        "Use this section for the top-line picture. It compares actual leads with a bounded business-facing decomposition into media contribution, baseline contribution, and unexplained gap.",
+    )
     col1, col2, col3, col4 = st.columns(4)
     col1.metric(
         "Total leads",
@@ -1895,9 +2837,10 @@ def render_results_tab() -> None:
     if selected_model == "PyMC" and holdout_meta is None:
         st.caption("Holdout validation is currently skipped for PyMC to keep Bayesian fits lighter during demo usage.")
     if holdout_meta is not None:
-        st.subheader("Validation diagnostics")
-        st.caption(
-            "This section shows a simple time-based holdout check using the latest 20% of periods as validation data."
+        render_section_intro(
+            "Validation diagnostics",
+            "This section shows a simple time-based holdout check using the latest 20% of periods as validation data.",
+            kicker="Model check",
         )
         holdout_df = holdout_meta["holdout_df"].copy()
         holdout_chart_df = aggregate_time_series_df(
@@ -1946,8 +2889,8 @@ def render_results_tab() -> None:
                 y=alt.Y("residual:Q", title="Residual"),
                 color=alt.condition(
                     alt.datum.residual >= 0,
-                    alt.value("#4C78A8"),
-                    alt.value("#F58518"),
+                    alt.value(CHART_ACCENT),
+                    alt.value(CHART_ACCENT_DARK),
                 ),
                 tooltip=[
                     alt.Tooltip("date:T", title="Date"),
@@ -1958,15 +2901,30 @@ def render_results_tab() -> None:
             )
             .properties(title=f"Holdout residuals ({selected_visual_granularity})", height=260, width="container")
         )
-        st.altair_chart(residual_chart)
+        residual_labels = (
+            alt.Chart(residual_df)
+            .mark_text(dy=-10)
+            .encode(
+                x=alt.X("date:T", title="Date"),
+                y=alt.Y("residual:Q", title="Residual"),
+                text=alt.Text("label:N"),
+                color=alt.condition(
+                    alt.datum.residual >= 0,
+                    alt.value(CHART_LABEL),
+                    alt.value(CHART_ACCENT_DEEP),
+                ),
+            )
+        )
+        st.altair_chart(apply_chart_theme(residual_chart + residual_labels))
 
     bayesian_diagnostics = st.session_state["model_results_meta"].get(selected_model, {}).get(
         "bayesian_diagnostics"
     )
     if selected_model == "PyMC" and isinstance(bayesian_diagnostics, dict):
-        st.subheader("Bayesian diagnostics")
-        st.caption(
-            "Use this section to judge whether the PyMC sampler was stable enough to trust the Bayesian interval story."
+        render_section_intro(
+            "Bayesian diagnostics",
+            "Use this section to judge whether the PyMC sampler was stable enough to trust the Bayesian interval story.",
+            kicker="Sampler check",
         )
         diag_col1, diag_col2, diag_col3, diag_col4 = st.columns(4)
         diag_col1.metric("Chains", str(bayesian_diagnostics.get("chains", "N/A")))
@@ -2014,10 +2972,12 @@ def render_results_tab() -> None:
         flagged_parameters = bayesian_diagnostics.get("flagged_parameters") or []
         if flagged_parameters:
             st.markdown("**Parameters with warnings**")
-            st.dataframe(pd.DataFrame(flagged_parameters), width="stretch")
+            render_clean_dataframe(pd.DataFrame(flagged_parameters))
 
-    st.subheader("Why is it happening?")
-    st.caption("Use this section to explain channel efficiency. Focus on CPL, bounded contribution, and each channel's share of actual leads in the current filtered view.")
+    render_section_intro(
+        "Why is it happening?",
+        "Use this section to explain channel efficiency. Focus on CPL, bounded contribution, and each channel's share of actual leads in the current filtered view.",
+    )
     if negative_signal_channels:
         st.warning(
             "Some selected channels have negative fitted coefficients: "
@@ -2054,7 +3014,7 @@ def render_results_tab() -> None:
             row["CPL upper"] = format_cpl(result.cpl_upper[channel])
         why_rows.append(row)
     why_df = pd.DataFrame(why_rows)
-    st.dataframe(why_df, width="stretch")
+    render_clean_dataframe(why_df)
     st.caption(
         "Contribution share here is the bounded business-facing contribution divided by actual leads in the selected period."
     )
@@ -2124,8 +3084,11 @@ def render_results_tab() -> None:
     elif visible_channels:
         st.info("No rankable CPL values are available in the current visible-channel view because the selected channels have zero or negative attributed leads.")
 
-    st.subheader("What should leadership do next?")
-    st.caption("Use this as the action section. The recommendation is directional and based on the current business-facing efficiency view, not a guaranteed forecast.")
+    render_section_intro(
+        "What should leadership do next?",
+        "Use this as the action section. The recommendation is directional and based on the current business-facing efficiency view, not a guaranteed forecast.",
+        kicker="Decision",
+    )
     worst_name, worst_value = pick_worst_channel(visible_cpl_map)
     reallocation_pct = 0
     if best_visible_value and worst_value and worst_value > 0:
@@ -2286,22 +3249,68 @@ def render_results_tab() -> None:
                     "Saturation note": saturation_note,
                 }
             )
-        st.dataframe(pd.DataFrame(rows), width="stretch")
+        render_clean_dataframe(pd.DataFrame(rows))
 
-        saturation_chart = build_saturation_curve_chart(
-            st.session_state["df"].loc[period_mask].reset_index(drop=True),
-            date_col,
-            st.session_state["selected_visual_channels"],
-            st.session_state["adstock_type"],
-            st.session_state["adstock_params"],
-            st.session_state["saturation_type"],
-            st.session_state["saturation_params"],
-            selected_visual_granularity,
+        saturation_controls_col1, saturation_controls_col2 = st.columns((3, 2))
+        show_only_hill_saturation = saturation_controls_col1.checkbox(
+            "Show only Hill saturation",
+            value=bool(st.session_state.get("show_only_hill_saturation", False)),
+            help="Limit the saturation chart to channels using the Hill curve, which is often the most informative for headroom.",
         )
+        saturation_chart_layout = saturation_controls_col2.selectbox(
+            "Saturation chart layout",
+            options=["Overlay", "Small multiples"],
+            index=0
+            if st.session_state.get("saturation_chart_layout", "Overlay") == "Overlay"
+            else 1,
+            help="Overlay compares channels on one chart. Small multiples gives each selected channel its own panel.",
+        )
+        st.session_state["show_only_hill_saturation"] = show_only_hill_saturation
+        st.session_state["saturation_chart_layout"] = saturation_chart_layout
+
+        previous_saturation_channels = st.session_state.get("selected_saturation_channels") or visible_channels
+        available_saturation_channels = [channel for channel in visible_channels if channel in result.channel_names]
+        default_saturation_channels = [
+            channel for channel in previous_saturation_channels if channel in available_saturation_channels
+        ] or available_saturation_channels
+        selected_saturation_channels = st.multiselect(
+            "Variables shown in saturation chart",
+            options=available_saturation_channels,
+            default=default_saturation_channels,
+            help="Choose which visible channels appear in the saturation curve chart below.",
+        )
+        st.session_state["selected_saturation_channels"] = selected_saturation_channels
+
+        chart_channels = selected_saturation_channels
+        if show_only_hill_saturation:
+            chart_channels = [
+                channel
+                for channel in selected_saturation_channels
+                if st.session_state["saturation_type"].get(channel, "log") == "hill"
+            ]
+
+        if not selected_saturation_channels:
+            st.info("Select at least one variable to display saturation curves.")
+            saturation_chart = None
+        elif show_only_hill_saturation and not chart_channels:
+            st.info("None of the selected variables use Hill saturation. Disable the Hill-only toggle or choose variables configured with `Hill` saturation.")
+            saturation_chart = None
+        else:
+            saturation_chart = build_saturation_curve_chart(
+                st.session_state["df"].loc[period_mask].reset_index(drop=True),
+                date_col,
+                chart_channels,
+                st.session_state["adstock_type"],
+                st.session_state["adstock_params"],
+                st.session_state["saturation_type"],
+                st.session_state["saturation_params"],
+                selected_visual_granularity,
+                facet_by_channel=saturation_chart_layout == "Small multiples",
+            )
         if saturation_chart is not None:
             st.altair_chart(saturation_chart)
-        else:
-            st.info("No saturation curves to show because the selected channels use `None` saturation.")
+        elif chart_channels:
+            st.info("No saturation curves to show because the selected variables use `None` saturation.")
 
     overview_export_df = pd.DataFrame(
         [
@@ -2336,8 +3345,11 @@ def render_results_tab() -> None:
     channel_export_df = pd.DataFrame(channel_export_rows)
     comparison_export_df = comparison_df.copy()
 
-    st.subheader("Export")
-    st.caption("Download the current results view as CSV or PDF. The export uses the selected model, period, and channel filter.")
+    render_section_intro(
+        "Export",
+        "Download the current results view as CSV or PDF. The export uses the selected model, period, and channel filter.",
+        kicker="Output",
+    )
     export_col1, export_col2, export_col3 = st.columns(3)
     export_col1.download_button(
         "Results overview CSV",
@@ -2478,6 +3490,19 @@ def render_ai_tab() -> None:
     provider_options = ["openai"]
     if is_anthropic_available():
         provider_options.append("anthropic")
+    render_section_intro(
+        "Generate written analysis",
+        "Use AI as a communication layer on top of the current Results view, not as a replacement for reviewing the evidence.",
+        kicker="Assistant",
+    )
+    render_badge_row(
+        [
+            ("Model", selected_model),
+            ("Period", selected_period),
+            ("Visible channels", str(len(selected_visual_channels))),
+            ("Source", loaded_source),
+        ]
+    )
     render_definitions_expander(
         "Definitions for this tab",
         [
@@ -2488,7 +3513,8 @@ def render_ai_tab() -> None:
             ("Complete overview export", "One final artifact that combines setup reasoning, priors, results, and AI output."),
         ],
     )
-    provider = st.radio(
+    control_col1, control_col2 = st.columns(2)
+    provider = control_col1.radio(
         "Provider",
         options=provider_options,
         index=provider_options.index(st.session_state.get("ai_provider", provider_options[0]))
@@ -2508,7 +3534,7 @@ def render_ai_tab() -> None:
         model = None
         st.warning(ai_error or "AI credentials are not configured.")
 
-    analysis_mode = st.selectbox(
+    analysis_mode = control_col2.selectbox(
         "Analysis depth",
         options=["In-depth", "Executive short"],
         index=0,
@@ -2622,7 +3648,7 @@ def render_ai_tab() -> None:
                 )
             if validation_issues:
                 validation_df = pd.DataFrame(validation_issues)
-                st.dataframe(validation_df, width="stretch")
+                render_clean_dataframe(validation_df)
         st.markdown(st.session_state["ai_summary"])
         if not ai_is_stale:
             ai_export_df = pd.DataFrame(
@@ -2732,9 +3758,10 @@ def render_ai_tab() -> None:
                 recommendation_lines=recommendation_lines,
                 ai_analysis=st.session_state.get("ai_summary"),
             )
-            st.subheader("Complete overview export")
-            st.caption(
-                "Download one final overview that includes column-selection reasoning, data checks, transform reasoning, prior choices, current results, and AI suggestions."
+            render_section_intro(
+                "Complete overview export",
+                "Download one final overview that includes column-selection reasoning, data checks, transform reasoning, prior choices, current results, and AI suggestions.",
+                kicker="Deliverable",
             )
             full_col1, full_col2 = st.columns(2)
             full_col1.download_button(
@@ -2757,8 +3784,8 @@ def render_ai_tab() -> None:
 
 def main() -> None:
     st.set_page_config(page_title="MMM — Marketing Mix Modeling", layout="wide")
-    st.title("Marketing Mix Modeling")
-    st.caption("Use the sidebar step menu to move from data preparation to model results and final analysis.")
+    inject_app_styles()
+    render_app_header()
     init_state()
     session_notice = st.session_state.get("session_notice")
     if isinstance(session_notice, dict):
@@ -2778,8 +3805,7 @@ def main() -> None:
         key="manual_ai_api_key",
         help="Optional manual API key entry used when credentials are not available from file or environment.",
     )
-    st.subheader("Guide" if selected_step == "Info" else selected_step)
-    st.caption(STEP_DESCRIPTIONS[selected_step])
+    render_step_banner(selected_step)
 
     if selected_step == "Data":
         render_data_tab()

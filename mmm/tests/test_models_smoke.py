@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import unittest
 from pathlib import Path
 
@@ -21,7 +22,8 @@ from src.results_helpers import (
     get_time_granularity_options,
     infer_granularity_scale_factor,
 )
-from src.setup_assistant import _resolve_hybrid_column_selection
+from src.session_persistence import _serialize_value
+from src.setup_assistant import _resolve_hybrid_column_selection, _sanitize_channel_prior_family
 from src.transforms import transform_media
 from src.utils import convert_mmm_data, validate_mmm_data
 
@@ -84,6 +86,52 @@ def build_transformed_inputs(
 
 
 class ModelSmokeTests(unittest.TestCase):
+    def test_session_serializer_accepts_model_result_like_dataclass(self) -> None:
+        @dataclasses.dataclass
+        class ReloadedModelResult:
+            model_name: str
+            channel_names: list[str]
+            coefficients: dict[str, float]
+            intercept: float
+            cpl: dict[str, float]
+            contribution: dict[str, np.ndarray]
+            contribution_pct: dict[str, float]
+            y_pred: np.ndarray
+            baseline: np.ndarray
+            baseline_pct: float
+            r_squared: float
+            rmse: float
+            coefficient_lower: dict[str, float] | None = None
+            coefficient_upper: dict[str, float] | None = None
+            cpl_lower: dict[str, float] | None = None
+            cpl_upper: dict[str, float] | None = None
+
+        model_result = ReloadedModelResult(
+            model_name="OLS",
+            channel_names=["tv_spend"],
+            coefficients={"tv_spend": 1.23},
+            intercept=4.56,
+            cpl={"tv_spend": 12.34},
+            contribution={"tv_spend": np.asarray([1.0, 2.0], dtype=np.float64)},
+            contribution_pct={"tv_spend": 0.5},
+            y_pred=np.asarray([5.0, 6.0], dtype=np.float64),
+            baseline=np.asarray([4.0, 4.0], dtype=np.float64),
+            baseline_pct=0.5,
+            r_squared=0.8,
+            rmse=1.2,
+        )
+
+        serialized = _serialize_value(model_result)
+
+        self.assertEqual(serialized["__type__"], "model_result")
+        self.assertEqual(serialized["value"]["model_name"], "OLS")
+        self.assertEqual(serialized["value"]["channel_names"], ["tv_spend"])
+
+    def test_channel_prior_family_stays_business_safe(self) -> None:
+        self.assertEqual(_sanitize_channel_prior_family("HalfNormal"), "HalfNormal")
+        self.assertEqual(_sanitize_channel_prior_family("Normal"), "HalfNormal")
+        self.assertEqual(_sanitize_channel_prior_family("anything_else"), "HalfNormal")
+
     def test_negative_cpl_is_not_rankable(self) -> None:
         cpl_map = {
             "negative_channel": -12.5,

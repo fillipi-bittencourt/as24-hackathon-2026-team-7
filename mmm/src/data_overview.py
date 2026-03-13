@@ -10,12 +10,14 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 from src.results_helpers import (
     aggregate_time_series_df,
+    build_single_series_line_chart,
     get_default_time_granularity,
     get_time_granularity_options,
     infer_grain,
 )
+from src.ui_content import build_table_column_config, render_badge_row, render_surface_intro
 
-MAX_VIF_INPUTS = 12
+MAX_VIF_INPUTS = 30
 
 
 def render_data_overview_tab() -> None:
@@ -32,8 +34,10 @@ def render_data_overview_tab() -> None:
     target_values = df[target_col].astype(float)
     grain = infer_grain(df[date_col]) or "unknown"
 
-    st.caption(
-        "Use this step to inspect the validated dataset before choosing transforms or fitting models. Focus on coverage, target behavior, input quality, and overlap across selected inputs."
+    render_surface_intro(
+        "Inspect the validated dataset",
+        "Use this step to inspect the validated dataset before choosing transforms or fitting models. Focus on coverage, target behavior, input quality, and overlap across selected inputs.",
+        kicker="Overview",
     )
     st.info(
         "Recommended reading order: check the top metrics first, then review the health tags, then inspect target behavior, spend aggregations, input diagnostics, and multicollinearity."
@@ -60,35 +64,40 @@ def render_data_overview_tab() -> None:
     top_col7.metric("Target total", f"{float(target_values.sum()):,.0f}")
     top_col8.metric("Zero-target rows", f"{zero_target_pct:.1f}%")
 
-    st.subheader("Health tags")
+    render_surface_intro(
+        "Health tags",
+        "Use these quick heuristics to decide whether the dataset is dense enough and stable enough for a useful first MMM read.",
+        kicker="Health",
+    )
     tag_col1, tag_col2, tag_col3, tag_col4 = st.columns(4)
-    tag_col1.markdown(
-        f"**Dataset health**  \n`{classify_dataset_health(rows_per_parameter, zero_target_pct)}`"
-    )
-    tag_col2.markdown(
-        f"**Signal volatility**  \n`{classify_target_volatility(target_values)}`"
-    )
-    tag_col3.markdown(
-        f"**Correlation risk**  \n`{classify_correlation_risk(max_abs_corr)}`"
-    )
-    tag_col4.markdown(
-        f"**Input coverage**  \n`{coverage_risk}`"
-    )
+    tag_col1.metric("Dataset health", classify_dataset_health(rows_per_parameter, zero_target_pct))
+    tag_col2.metric("Signal volatility", classify_target_volatility(target_values))
+    tag_col3.metric("Correlation risk", classify_correlation_risk(max_abs_corr))
+    tag_col4.metric("Input coverage", coverage_risk)
 
-    st.subheader("Selected modeling scope")
+    render_surface_intro(
+        "Selected modeling scope",
+        "This is the current modeling boundary used by the later configuration and results screens.",
+        kicker="Scope",
+    )
+    render_badge_row(
+        [
+            ("Target", target_col),
+            ("Channels", str(len(channel_cols))),
+            ("Controls", str(len(control_cols))),
+        ]
+    )
     st.markdown(
-        f"""
-        **Target**: `{target_col}`
-
-        **Channels**: {", ".join(f"`{name}`" for name in channel_cols) if channel_cols else "None"}
-
-        **Controls**: {", ".join(f"`{name}`" for name in control_cols) if control_cols else "None"}
-        """
+        f"**Channels**: {', '.join(f'`{name}`' for name in channel_cols) if channel_cols else 'None'}"
+    )
+    st.markdown(
+        f"**Controls**: {', '.join(f'`{name}`' for name in control_cols) if control_cols else 'None'}"
     )
 
-    st.subheader("Target behavior")
-    st.caption(
-        "This shows the validated target trend. Large spikes, long flat periods, or many zero rows can make model interpretation harder."
+    render_surface_intro(
+        "Target behavior",
+        "This shows the validated target trend. Large spikes, long flat periods, or many zero rows can make model interpretation harder.",
+        kicker="Target",
     )
     time_granularity_options = get_time_granularity_options(df[date_col])
     default_granularity = get_default_time_granularity(df[date_col])
@@ -108,24 +117,44 @@ def render_data_overview_tab() -> None:
         target_col=target_col,
         granularity=time_granularity,
     )
-    st.line_chart(target_chart_df, height=280)
-    st.dataframe(build_overview_target_summary(target_values), width="stretch")
-
-    st.subheader("Channel spend aggregations")
-    if channel_cols:
-        st.caption(
-            "These are broad spend and coverage summaries for the selected channel inputs before transformations are applied."
+    st.altair_chart(
+        build_single_series_line_chart(
+            target_chart_df.reset_index(),
+            date_col=date_col,
+            value_col=target_col,
+            title=f"Target trend ({time_granularity})",
+            series_name="Target",
+            height=280,
         )
+    )
+    target_summary_df = build_overview_target_summary(target_values)
+    st.dataframe(
+        target_summary_df,
+        column_config=build_table_column_config(target_summary_df.columns),
+        width="stretch",
+        hide_index=True,
+    )
+
+    render_surface_intro(
+        "Channel spend aggregations",
+        "Review broad spend and coverage summaries for the selected channel inputs before transformations are applied.",
+        kicker="Channels",
+    )
+    if channel_cols:
+        channel_aggregation_df = build_channel_aggregation_df(df, channel_cols)
         st.dataframe(
-            build_channel_aggregation_df(df, channel_cols),
+            channel_aggregation_df,
+            column_config=build_table_column_config(channel_aggregation_df.columns),
             width="stretch",
+            hide_index=True,
         )
     else:
         st.info("No channels selected yet, so there is no spend aggregation table to show.")
 
-    st.subheader("Input diagnostics")
-    st.caption(
-        "These are validated raw selected inputs before adstock or saturation. Use them as pre-model setup diagnostics, not as the final transformed model matrix."
+    render_surface_intro(
+        "Input diagnostics",
+        "These are validated raw selected inputs before adstock or saturation. Use them as pre-model setup diagnostics, not as the final transformed model matrix.",
+        kicker="Diagnostics",
     )
     diagnostics_df = build_overview_input_diagnostics(
         df=df,
@@ -133,11 +162,17 @@ def render_data_overview_tab() -> None:
         channel_cols=channel_cols,
         control_cols=control_cols,
     )
-    st.dataframe(diagnostics_df, width="stretch")
+    st.dataframe(
+        diagnostics_df,
+        column_config=build_table_column_config(diagnostics_df.columns),
+        width="stretch",
+        hide_index=True,
+    )
 
-    st.subheader("Multicollinearity checks")
-    st.caption(
-        "These are pre-model overlap checks on the validated raw selected inputs. They can be expensive on wide datasets, so advanced diagnostics run only when you ask for them."
+    render_surface_intro(
+        "Multicollinearity checks",
+        "These are pre-model overlap checks on the validated raw selected inputs. They can be expensive on wide datasets, so advanced diagnostics run only when you ask for them.",
+        kicker="Overlap",
     )
     if len(input_cols) < 2:
         st.info("Select at least two channel or control variables to evaluate multicollinearity.")
@@ -147,7 +182,7 @@ def render_data_overview_tab() -> None:
         "Run advanced multicollinearity diagnostics",
         value=False,
         key="overview_run_multicollinearity",
-        help="Computes strongest overlap pairs and, for smaller input sets, VIF. Leave this off for a faster first read.",
+        help="Computes strongest overlap pairs and, for small-to-medium input sets, VIF. Leave this off for a faster first read.",
     )
     if not run_advanced:
         st.info(
@@ -163,11 +198,17 @@ def render_data_overview_tab() -> None:
         )
 
     st.markdown("**Strongest input correlations**")
-    st.dataframe(corr_pairs_df.head(25), width="stretch")
+    corr_preview_df = corr_pairs_df.head(25)
+    st.dataframe(
+        corr_preview_df,
+        column_config=build_table_column_config(corr_preview_df.columns),
+        width="stretch",
+        hide_index=True,
+    )
 
     if len(input_cols) > MAX_VIF_INPUTS:
         st.info(
-            f"VIF is skipped because {len(input_cols)} inputs are selected. Reduce the selected inputs to {MAX_VIF_INPUTS} or fewer if you want a deeper VIF check."
+            f"VIF is skipped because {len(input_cols)} inputs are selected. Keep the selected inputs at {MAX_VIF_INPUTS} or fewer if you want the deeper VIF check to run."
         )
         return
 
@@ -187,7 +228,12 @@ def render_data_overview_tab() -> None:
     st.caption(
         "VIF here is a setup heuristic on the validated raw selected inputs. Rough guide: above 5 deserves caution, above 10 is a strong warning sign."
     )
-    st.dataframe(vif_df, width="stretch")
+    st.dataframe(
+        vif_df,
+        column_config=build_table_column_config(vif_df.columns),
+        width="stretch",
+        hide_index=True,
+    )
 
 
 def build_overview_target_summary(target_series: pd.Series) -> pd.DataFrame:

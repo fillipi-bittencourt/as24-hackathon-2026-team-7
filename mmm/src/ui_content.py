@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from typing import Any
 
 import pandas as pd
@@ -12,10 +13,22 @@ TABLE_COLUMN_HELP_TEXT = {
     "Item": "The field or concept being described.",
     "Reference": "A benchmark range or default value used for interpretation.",
     "How to use it": "Short guidance on how to apply the reference value.",
+    "Metric": "The metric or diagnostic being summarized.",
     "Selected item": "The dataset field or selection decision being explained.",
     "Value": "The current value shown for that row.",
     "Reasoning": "Why the app or AI selected or recommended that value.",
     "Channel": "The marketing channel or driver being evaluated.",
+    "Variable": "The input variable being reviewed.",
+    "Type": "Whether the input is treated as a channel or a control.",
+    "Mean": "Average value across periods.",
+    "Median": "Middle value across periods.",
+    "Std dev": "How much the value typically varies around the mean.",
+    "Min": "Smallest observed value in the selected data.",
+    "Max": "Largest observed value in the selected data.",
+    "Zero rows (%)": "Share of rows where the variable is exactly zero.",
+    "Negative rows (%)": "Share of rows where the variable is negative.",
+    "Corr to target": "Simple raw correlation between the variable and the target.",
+    "Risk tag": "Quick label that highlights whether the variable or diagnostic needs attention.",
     "Adstock": "The carryover transform used for the channel.",
     "Theta": "Carryover strength for geometric adstock. Higher means longer carryover.",
     "Saturation": "The diminishing-returns transform used for the channel.",
@@ -40,12 +53,18 @@ TABLE_COLUMN_HELP_TEXT = {
     "CPL": "Cost per lead. Lower means more efficient lead generation.",
     "CPL lower": "Lower uncertainty bound for CPL, when available.",
     "CPL upper": "Upper uncertainty bound for CPL, when available.",
-    "Contribution": "Raw modeled contribution attributed to the channel in the selected view. It can be negative when the fitted coefficient is negative.",
-    "Contribution share (%)": "Raw channel contribution divided by actual leads in the selected view. It can be negative or above 100 when other model components offset it.",
-    "Share of actual (%)": "Raw channel contribution divided by actual leads in the selected view. It can be negative or above 100 when other model components offset it.",
-    "Share": "Raw channel contribution divided by actual leads in the selected view.",
-    "Share_pct": "Raw channel contribution divided by actual leads in the selected view.",
+    "Contribution": "Bounded business-facing contribution attributed to the channel in the selected view.",
+    "Contribution share (%)": "Bounded channel contribution divided by actual leads in the selected view.",
+    "Share of actual (%)": "Bounded channel contribution divided by actual leads in the selected view.",
+    "Share": "Bounded channel contribution divided by actual leads in the selected view.",
+    "Share_pct": "Bounded channel contribution divided by actual leads in the selected view.",
     "Spend total": "Total spend for the channel in the selected period.",
+    "Total spend": "Total spend for the channel in the selected period.",
+    "Average per period": "Average value per time period.",
+    "Median per period": "Median value per time period.",
+    "Non-zero periods (%)": "Share of periods where the value is positive.",
+    "Spend share (%)": "Share of total spend represented by that row.",
+    "Coverage tag": "Quick label for how often the variable is active in the dataset.",
     "Average weekly spend": "Average spend per period in the selected view.",
     "Average weekly contribution": "Average modeled leads contributed per period in the selected view.",
     "Carryover": "Approximate number of periods the channel effect lingers after spend.",
@@ -55,6 +74,13 @@ TABLE_COLUMN_HELP_TEXT = {
     "Media contribution": "Sum of the bounded business-facing channel contributions in the selected view.",
     "Baseline contribution": "Bounded non-media contribution shown in the business-facing decomposition.",
     "Residual gap": "Positive unexplained lead volume left after the business-facing decomposition is applied.",
+    "Left variable": "The first variable in the pairwise comparison.",
+    "Right variable": "The second variable in the pairwise comparison.",
+    "Correlation": "Pairwise raw correlation between the two variables.",
+    "Abs correlation": "Absolute value of the pairwise correlation.",
+    "VIF": "Variance inflation factor for the selected input.",
+    "Applied because": "Why the item is currently included in the applied configuration.",
+    "Excluded because": "Why the item was left out of the applied configuration.",
     "What it does": "Plain-language description of what the model or concept does.",
     "Best use case": "When this model or concept is most useful.",
     "Strength": "Main reason to prefer this model or concept.",
@@ -69,6 +95,15 @@ TABLE_NUMBER_COLUMNS = {
     "Theta",
     "Alpha",
     "K",
+    "Value",
+    "Mean",
+    "Median",
+    "Std dev",
+    "Min",
+    "Max",
+    "Zero rows (%)",
+    "Negative rows (%)",
+    "Corr to target",
     "Sigma scale",
     "R² in-sample",
     "RMSE in-sample",
@@ -87,9 +122,35 @@ TABLE_NUMBER_COLUMNS = {
     "Share",
     "Share_pct",
     "Spend total",
+    "Total spend",
+    "Average per period",
+    "Median per period",
+    "Non-zero periods (%)",
+    "Spend share (%)",
+    "Correlation",
+    "Abs correlation",
+    "VIF",
     "Average weekly spend",
     "Average weekly contribution",
 }
+
+
+def is_spend_value_column(column_name: str) -> bool:
+    lowered = column_name.lower()
+    if column_name in {
+        "Spend total",
+        "Total spend",
+        "Average per period",
+        "Median per period",
+    }:
+        return True
+    return lowered.startswith("average ") and lowered.endswith(" spend")
+
+
+def get_table_display_label(column_name: str) -> str:
+    if is_spend_value_column(column_name):
+        return f"{column_name} ($)"
+    return column_name
 
 
 def render_definitions_expander(
@@ -114,7 +175,41 @@ def render_reference_values_expander(
             reference_df,
             column_config=build_table_column_config(reference_df.columns),
             width="stretch",
+            hide_index=True,
         )
+
+
+def render_surface_intro(title: str, caption: str, *, kicker: str = "Section") -> None:
+    _ = kicker
+    st.subheader(title)
+    st.caption(caption)
+
+
+def render_badge_row(items: list[tuple[str, str | None]]) -> None:
+    parts = [f"**{escape(str(label))}**: {escape(str(value))}" for label, value in items if value not in {None, ""}]
+    if parts:
+        st.caption(" • ".join(parts))
+
+
+def render_markdown_panel(title: str, body_markdown: str) -> None:
+    st.markdown(
+        f"""
+        <div class="mmm-panel">
+            <h4>{escape(title)}</h4>
+            <div>{body_markdown}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def is_numeric_column(column_name: str) -> bool:
+    if column_name in TABLE_NUMBER_COLUMNS:
+        return True
+    lowered = column_name.lower()
+    return lowered.startswith("average ") and (
+        lowered.endswith(" spend") or lowered.endswith(" contribution")
+    )
 
 
 def build_table_column_config(columns: list[str] | pd.Index) -> dict[str, Any]:
@@ -122,20 +217,42 @@ def build_table_column_config(columns: list[str] | pd.Index) -> dict[str, Any]:
     for column in columns:
         column_name = str(column)
         help_value = TABLE_COLUMN_HELP_TEXT.get(column_name)
+        if is_numeric_column(column_name):
+            display_label = get_table_display_label(column_name)
+            number_format = "%.2f" if is_spend_value_column(column_name) else None
+            config[column_name] = st.column_config.NumberColumn(
+                display_label,
+                help=help_value,
+                format=number_format,
+            )
+            continue
         if not help_value:
             continue
-        if column_name in TABLE_NUMBER_COLUMNS:
-            config[column_name] = st.column_config.NumberColumn(column_name, help=help_value)
-        elif column_name in {"date", "Date"}:
-            config[column_name] = st.column_config.DateColumn(column_name, help=help_value)
+        if column_name in {"date", "Date"}:
+            config[column_name] = st.column_config.DateColumn(
+                get_table_display_label(column_name),
+                help=help_value,
+            )
         else:
-            config[column_name] = st.column_config.TextColumn(column_name, help=help_value)
+            config[column_name] = st.column_config.TextColumn(
+                get_table_display_label(column_name),
+                help=help_value,
+            )
     return config
 
 
 def render_info_tab() -> None:
-    st.caption(
-        "Use this guide when you want the app to explain the workflow in plain English before you make modeling or budget decisions."
+    render_surface_intro(
+        "Guide to the MMM workflow",
+        "Use this guide when you want the app to explain the workflow in plain English before you make modeling or budget decisions.",
+        kicker="Reference",
+    )
+    render_badge_row(
+        [
+            ("Best starting point", "OLS and Ridge"),
+            ("Primary check", "Holdout in Results"),
+            ("AI role", "Communication draft"),
+        ]
     )
     st.info(
         "Recommended path: validate the data first, start with OLS and Ridge, check holdout performance in Results, and only then use the AI write-up as a communication layer."
@@ -209,34 +326,44 @@ def render_info_tab() -> None:
             """
         )
 
-    st.subheader("What this app is doing")
+    render_surface_intro(
+        "What this app is doing",
+        "The app turns a validated dataset into transforms, fitted models, business-facing decomposition, and exportable interpretation.",
+        kicker="Overview",
+    )
     intro_col1, intro_col2 = st.columns(2)
-    intro_col1.markdown(
-        """
-        **In plain English**
+    with intro_col1:
+        render_markdown_panel(
+            "In plain English",
+            """
+            <p>This app tries to explain changes in leads using media spend and a few optional control variables.</p>
+            <ul>
+                <li>clean the time series into one row per date</li>
+                <li>transform media so carryover and diminishing returns can be modeled more realistically</li>
+                <li>fit one or more statistical models</li>
+                <li>translate the fitted output into business-facing views for reading, comparison, and export</li>
+            </ul>
+            """,
+        )
+    with intro_col2:
+        render_markdown_panel(
+            "Key ideas to keep in mind",
+            """
+            <ul>
+                <li><code>Adstock</code> means some impact from earlier spend can show up later</li>
+                <li><code>Saturation</code> means doubling spend does not usually double response forever</li>
+                <li><code>Regularization</code> helps when similar channels move together and the model cannot separate them cleanly</li>
+                <li><code>CPL</code> is a directional efficiency measure, not proof of causality</li>
+                <li><code>AI analysis</code> is a draft explanation layer, not a replacement for model review</li>
+            </ul>
+            """,
+        )
 
-        This app tries to explain changes in leads using media spend and a few optional control variables.
-
-        It does that in four layers:
-        - clean the time series into one row per date
-        - transform media so carryover and diminishing returns can be modeled more realistically
-        - fit one or more statistical models
-        - translate the fitted output into business-facing views for reading, comparison, and export
-        """
+    render_surface_intro(
+        "Workflow guide",
+        "Follow the workflow in this order so each step builds on a clean previous decision.",
+        kicker="Steps",
     )
-    intro_col2.markdown(
-        """
-        **Key ideas to keep in mind**
-
-        - `Adstock` means some impact from earlier spend can show up later
-        - `Saturation` means doubling spend does not usually double response forever
-        - `Regularization` helps when similar channels move together and the model cannot separate them cleanly
-        - `CPL` is a directional efficiency measure, not proof of causality
-        - `AI analysis` is a draft explanation layer, not a replacement for model review
-        """
-    )
-
-    st.subheader("Workflow guide")
     with st.expander("1. Data", expanded=True):
         st.markdown(
             """
@@ -355,7 +482,11 @@ def render_info_tab() -> None:
             """
         )
 
-    st.subheader("Choose the right model")
+    render_surface_intro(
+        "Choose the right model",
+        "Use the model descriptions below to decide whether you want speed, stability, sparsity, or uncertainty intervals.",
+        kicker="Model choice",
+    )
     with st.expander("OLS", expanded=True):
         st.markdown(
             """
@@ -463,39 +594,46 @@ def render_info_tab() -> None:
             """
         )
 
-    st.subheader("Choose transforms with intent")
+    render_surface_intro(
+        "Choose transforms with intent",
+        "Use transforms to express carryover and diminishing returns in a way that better matches real media behavior.",
+        kicker="Transform choice",
+    )
     transform_col1, transform_col2 = st.columns(2)
-    transform_col1.markdown(
-        """
-        **Adstock**
-
-        Use `Geometric` when a channel likely keeps working after the spend lands.
-
-        - lower `theta` means fast fade
-        - higher `theta` means longer carryover
-        - use `None` when the effect is expected to be mostly same-period
-        """
+    with transform_col1:
+        render_markdown_panel(
+            "Adstock",
+            """
+            <p>Use <code>Geometric</code> when a channel likely keeps working after the spend lands.</p>
+            <ul>
+                <li>lower <code>theta</code> means fast fade</li>
+                <li>higher <code>theta</code> means longer carryover</li>
+                <li>use <code>None</code> when the effect is expected to be mostly same-period</li>
+            </ul>
+            """,
+        )
+    with transform_col2:
+        render_markdown_panel(
+            "Saturation",
+            """
+            <p>Use saturation when doubling spend should not double response forever.</p>
+            <ul>
+                <li><code>Log</code> is the simpler default</li>
+                <li><code>Hill</code> is more configurable</li>
+                <li><code>None</code> is a useful stress test, not usually the final choice</li>
+            </ul>
+            """,
+        )
+    render_markdown_panel(
+        "A practical rule",
+        "<p>If you are unsure, start with geometric adstock plus log saturation for all channels, fit once, and only then tune the channels where the business story or diagnostics suggest a change.</p>",
     )
-    transform_col2.markdown(
-        """
-        **Saturation**
 
-        Use saturation when doubling spend should not double response forever.
-
-        - `Log` is the simpler default
-        - `Hill` is more configurable
-        - `None` is a useful stress test, not usually the final choice
-        """
+    render_surface_intro(
+        "How to read the outputs",
+        "Use the sections below as a reading order for fit, validation, attribution, efficiency, and AI-generated summaries.",
+        kicker="Interpretation",
     )
-    st.markdown(
-        """
-        **A practical rule**
-
-        If you are unsure, start with geometric adstock plus log saturation for all channels, fit once, and only then tune the channels where the business story or diagnostics suggest a change.
-        """
-    )
-
-    st.subheader("How to read the outputs")
     with st.expander("Model comparison", expanded=True):
         st.markdown(
             """

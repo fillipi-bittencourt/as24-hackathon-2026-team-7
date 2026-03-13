@@ -11,6 +11,74 @@ LOW_SPEND_QUANTILE = 0.2
 MIN_BASELINE_SHARE = 0.1
 MAX_BASELINE_SHARE = 0.6
 
+CHART_TEXT = "#3D3120"
+CHART_GRID = "#E8DEC3"
+CHART_DOMAIN = "#D7C8A2"
+CHART_RULE = "#B9A883"
+CHART_BACKGROUND = "#FFFDF7"
+CHART_PLOT_BACKGROUND = "#FFF8E6"
+CHART_ACCENT = "#D4A017"
+CHART_ACCENT_DARK = "#B7791F"
+CHART_ACCENT_DEEP = "#8F5B13"
+CHART_NEUTRAL = "#A88E5D"
+CHART_NEUTRAL_LIGHT = "#CDB98C"
+CHART_NEUTRAL_PALE = "#F3E2AE"
+CHART_LABEL = "#4A3818"
+CHART_SERIES_PALETTE = [
+    "#D4A017",
+    "#B7791F",
+    "#8F5B13",
+    "#CDB98C",
+    "#A88E5D",
+    "#F3E2AE",
+    "#6A4700",
+    "#E2C15B",
+    "#BFA36A",
+]
+
+
+def apply_chart_theme(chart: alt.Chart) -> alt.Chart:
+    return (
+        chart.configure(background=CHART_BACKGROUND)
+        .configure_view(
+            stroke=CHART_DOMAIN,
+            strokeOpacity=0.55,
+            fill=CHART_PLOT_BACKGROUND,
+            cornerRadius=14,
+        )
+        .configure_axis(
+            gridColor=CHART_GRID,
+            gridOpacity=0.75,
+            domainColor=CHART_DOMAIN,
+            tickColor=CHART_DOMAIN,
+            labelColor=CHART_TEXT,
+            titleColor=CHART_TEXT,
+            labelFontSize=12,
+            titleFontSize=12,
+        )
+        .configure_legend(
+            orient="bottom",
+            direction="horizontal",
+            titleColor=CHART_TEXT,
+            labelColor=CHART_TEXT,
+            padding=10,
+            symbolSize=110,
+        )
+        .configure_title(
+            anchor="start",
+            color=CHART_TEXT,
+            fontSize=16,
+            fontWeight=700,
+            offset=12,
+        )
+    )
+
+
+def style_chart(chart: alt.Chart, *, title: str, height: int) -> alt.Chart:
+    return apply_chart_theme(
+        chart.properties(title=title, height=height, width="container")
+    )
+
 
 def infer_grain(date_series: pd.Series) -> str | None:
     ordered = date_series.sort_values().dropna()
@@ -113,7 +181,7 @@ def is_rankable_cpl(value: float | None) -> bool:
 def format_cpl(value: float | None) -> str:
     if not is_rankable_cpl(value):
         return "N/A"
-    return f"EUR {value:,.2f} per lead"
+    return f"{value:,.2f}"
 
 
 def format_signed_number(value: float) -> str:
@@ -161,7 +229,7 @@ def build_labeled_bar_chart(
         ),
         y=alt.Y(f"{category_col}:N", sort="-x", title=None),
     )
-    bars = base.mark_bar().encode(
+    bars = base.mark_bar(cornerRadiusEnd=8, color=CHART_ACCENT).encode(
         tooltip=[
             alt.Tooltip(f"{category_col}:N", title="Item"),
             alt.Tooltip(f"{value_col}:Q", title="Value", format=",.2f"),
@@ -170,10 +238,10 @@ def build_labeled_bar_chart(
     labels = base.mark_text(align="left", baseline="middle", dx=4).encode(
         text=alt.Text(f"{label_col}:N")
     )
-    return (bars + labels).properties(
+    return style_chart(
+        bars + labels,
         title=title,
         height=max(180, 36 * len(df)),
-        width="container",
     )
 
 
@@ -201,7 +269,7 @@ def build_signed_bar_chart(
             title=None,
             scale=alt.Scale(
                 domain=["Positive", "Negative"],
-                range=["#4C78A8", "#F58518"],
+                range=[CHART_ACCENT, CHART_ACCENT_DEEP],
             ),
         ),
         tooltip=[
@@ -209,7 +277,7 @@ def build_signed_bar_chart(
             alt.Tooltip(f"{value_col}:Q", title="Value", format=",.2f"),
         ],
     )
-    bars = base.mark_bar()
+    bars = base.mark_bar(cornerRadiusEnd=8)
     positive_labels = (
         base.transform_filter(f"datum.{value_col} >= 0")
         .mark_text(align="left", baseline="middle", dx=4)
@@ -220,13 +288,13 @@ def build_signed_bar_chart(
         .mark_text(align="right", baseline="middle", dx=-4)
         .encode(text=alt.Text(f"{label_col}:N"))
     )
-    zero_rule = alt.Chart(pd.DataFrame({value_col: [0.0]})).mark_rule(color="#808080").encode(
+    zero_rule = alt.Chart(pd.DataFrame({value_col: [0.0]})).mark_rule(color=CHART_RULE).encode(
         x=alt.X(f"{value_col}:Q")
     )
-    return (zero_rule + bars + positive_labels + negative_labels).properties(
+    return style_chart(
+        zero_rule + bars + positive_labels + negative_labels,
         title=title,
         height=max(180, 36 * len(chart_df)),
-        width="container",
     )
 
 
@@ -236,7 +304,7 @@ def build_stacked_period_share_chart(
 ) -> alt.Chart:
     color_scale = alt.Scale(
         domain=["Media leads", "Baseline leads", "Unexplained gap", "Hidden + unexplained gap"],
-        range=["#4C78A8", "#72B7B2", "#F58518", "#F58518"],
+        range=[CHART_ACCENT, CHART_NEUTRAL_LIGHT, CHART_ACCENT_DARK, CHART_ACCENT_DARK],
     )
     base = alt.Chart(df).encode(
         x=alt.X("Period:N", title=None),
@@ -257,7 +325,7 @@ def build_stacked_period_share_chart(
         ],
     )
     bars = base.mark_bar(size=120)
-    labels = base.mark_text(color="white", baseline="middle").encode(
+    labels = base.mark_text(color=CHART_LABEL, baseline="middle").encode(
         text=alt.Text("ShareLabel:N")
     )
     total_labels = (
@@ -269,7 +337,7 @@ def build_stacked_period_share_chart(
             text=alt.Text("TotalLabel:N"),
         )
     )
-    return (bars + labels + total_labels).properties(title=title, height=320, width="container")
+    return style_chart(bars + labels + total_labels, title=title, height=320)
 
 
 def build_stacked_time_decomposition_chart(
@@ -278,22 +346,12 @@ def build_stacked_time_decomposition_chart(
     share_mode: bool = False,
 ) -> alt.Chart:
     special_colors = {
-        "baseline": "#72B7B2",
-        "unexplained_gap": "#F58518",
-        "residual_gap": "#F58518",
-        "other": "#B279A2",
+        "baseline": CHART_NEUTRAL_LIGHT,
+        "unexplained_gap": CHART_ACCENT_DARK,
+        "residual_gap": CHART_ACCENT_DARK,
+        "other": CHART_NEUTRAL,
     }
-    palette = [
-        "#4C78A8",
-        "#54A24B",
-        "#E45756",
-        "#F58518",
-        "#EECA3B",
-        "#B279A2",
-        "#FF9DA6",
-        "#9D755D",
-        "#BAB0AC",
-    ]
+    palette = CHART_SERIES_PALETTE
     domain = list(pd.unique(df["variable"]))
     used_special = {name for name in domain if name in special_colors}
     non_special = [name for name in domain if name not in special_colors]
@@ -325,7 +383,7 @@ def build_stacked_time_decomposition_chart(
         ],
     )
     bars = base.mark_bar()
-    labels = base.mark_text(color="white", baseline="middle").encode(
+    labels = base.mark_text(color=CHART_LABEL, baseline="middle").encode(
         text=alt.Text("segment_label:N")
     )
     total_label_y = alt.value(0) if share_mode else alt.Y("total_leads:Q", title="Leads")
@@ -339,20 +397,33 @@ def build_stacked_time_decomposition_chart(
             text=alt.Text("total_label:N"),
         )
     )
-    return (bars + labels + total_labels).properties(title=title, height=320, width="container")
+    return style_chart(bars + labels + total_labels, title=title, height=320)
 
 
 def build_actual_vs_predicted_chart(
     df: pd.DataFrame,
     title: str,
 ) -> alt.Chart:
+    final_points = (
+        df.sort_values(["series", "date"])
+        .groupby("series", as_index=False)
+        .tail(1)
+        .assign(end_label=lambda frame: frame["series"] + ": " + frame["leads"].round(0).astype(int).astype(str))
+    )
     line = (
         alt.Chart(df)
-        .mark_line(point=True)
+        .mark_line(point=True, strokeWidth=3)
         .encode(
             x=alt.X("date:T", title="Date"),
             y=alt.Y("leads:Q", title="Leads"),
-            color=alt.Color("series:N", title="Series"),
+            color=alt.Color(
+                "series:N",
+                title="Series",
+                scale=alt.Scale(
+                    domain=["Actual leads", "Predicted leads"],
+                    range=[CHART_ACCENT_DEEP, CHART_ACCENT],
+                ),
+            ),
             tooltip=[
                 alt.Tooltip("date:T", title="Date"),
                 alt.Tooltip("series:N", title="Series"),
@@ -361,16 +432,54 @@ def build_actual_vs_predicted_chart(
         )
     )
     labels = (
-        alt.Chart(df)
-        .mark_text(dy=-10)
+        alt.Chart(final_points)
+        .mark_text(align="left", dx=8, dy=-8, fontWeight="bold")
         .encode(
             x=alt.X("date:T", title="Date"),
             y=alt.Y("leads:Q", title="Leads"),
             color=alt.Color("series:N", title="Series"),
-            text=alt.Text("label:N"),
+            text=alt.Text("end_label:N"),
         )
     )
-    return (line + labels).properties(title=title, height=320, width="container")
+    return style_chart(line + labels, title=title, height=320)
+
+
+def build_single_series_line_chart(
+    df: pd.DataFrame,
+    *,
+    date_col: str,
+    value_col: str,
+    title: str,
+    series_name: str,
+    height: int = 320,
+) -> alt.Chart:
+    chart_df = df.copy()
+    final_point = chart_df.sort_values(date_col).tail(1).copy()
+    final_point["end_label"] = (
+        series_name + ": " + final_point[value_col].round(0).astype(int).astype(str)
+    )
+    line = (
+        alt.Chart(chart_df)
+        .mark_line(point=True, strokeWidth=3, color=CHART_ACCENT_DARK)
+        .encode(
+            x=alt.X(f"{date_col}:T", title="Date"),
+            y=alt.Y(f"{value_col}:Q", title=series_name),
+            tooltip=[
+                alt.Tooltip(f"{date_col}:T", title="Date"),
+                alt.Tooltip(f"{value_col}:Q", title=series_name, format=",.2f"),
+            ],
+        )
+    )
+    label = (
+        alt.Chart(final_point)
+        .mark_text(align="left", dx=8, dy=-8, fontWeight="bold", color=CHART_LABEL)
+        .encode(
+            x=alt.X(f"{date_col}:T", title="Date"),
+            y=alt.Y(f"{value_col}:Q", title=series_name),
+            text=alt.Text("end_label:N"),
+        )
+    )
+    return style_chart(line + label, title=title, height=height)
 
 
 def build_spend_vs_contribution_chart(
@@ -379,7 +488,7 @@ def build_spend_vs_contribution_chart(
 ) -> alt.Chart:
     rule = (
         alt.Chart(df)
-        .mark_rule(color="#B0B0B0")
+        .mark_rule(color=CHART_RULE)
         .encode(
             y=alt.Y("Channel:N", title=None),
             x=alt.X("MinShare:Q", title="Share (%)"),
@@ -392,7 +501,14 @@ def build_spend_vs_contribution_chart(
         .encode(
             y=alt.Y("Channel:N", title=None, sort="-x"),
             x=alt.X("SharePct:Q", title="Share (%)"),
-            color=alt.Color("Metric:N", title="Metric"),
+            color=alt.Color(
+                "Metric:N",
+                title="Metric",
+                scale=alt.Scale(
+                    domain=["Spend share", "Contribution share"],
+                    range=[CHART_NEUTRAL_LIGHT, CHART_ACCENT],
+                ),
+            ),
             tooltip=[
                 alt.Tooltip("Channel:N", title="Channel"),
                 alt.Tooltip("Metric:N", title="Metric"),
@@ -411,7 +527,11 @@ def build_spend_vs_contribution_chart(
             text=alt.Text("Label:N"),
         )
     )
-    return (rule + points + labels).properties(title=title, height=max(220, 42 * len(df["Channel"].unique())), width="container")
+    return style_chart(
+        rule + points + labels,
+        title=title,
+        height=max(220, 42 * len(df["Channel"].unique())),
+    )
 
 
 def compute_faithful_attribution(

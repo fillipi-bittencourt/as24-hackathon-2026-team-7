@@ -119,6 +119,7 @@ def build_payload(
     for ch in selected_channels:
         contribution_total = float(channel_totals.get(ch, 0.0))
         contribution_share = (contribution_total / actual_total) * 100 if not np.isclose(actual_total, 0.0) else None
+        channel_role = _infer_channel_role(ch)
         channels.append(
             {
                 "name": ch,
@@ -128,6 +129,8 @@ def build_payload(
                 "contribution_total": _clean_number(contribution_total),
                 "contribution_share_of_actual_pct": _clean_number(contribution_share),
                 "spend_total": _clean_number(spend_totals.get(ch)),
+                "channel_role": channel_role,
+                "scale_allowed": bool(channel_role in {"incremental", "unclear"}),
             }
         )
     hidden_media_total = sum(
@@ -139,6 +142,13 @@ def build_payload(
     predicted_total = float(np.sum(model_result.y_pred[period_mask]))
     holdout_meta = model_results_meta.get(model_result.model_name, {}).get("holdout")
     bayesian_meta = model_results_meta.get(model_result.model_name, {}).get("bayesian_diagnostics")
+    recommendation_guardrails = _build_recommendation_guardrails(
+        model_name=model_result.model_name,
+        holdout_meta=holdout_meta,
+        bayesian_meta=bayesian_meta,
+        residual_total=residual_total,
+        actual_total=actual_total,
+    )
     methodology_notes = [
         "Contribution, baseline, and residual totals reflect a bounded business-facing decomposition. Negative raw components are clipped at zero and scaled back to actual leads for interpretability."
     ]
@@ -204,6 +214,7 @@ def build_payload(
         "top_channel": _pick_channel_name(view_cpl_map, best=True),
         "bottom_channel": _pick_channel_name(view_cpl_map, best=False),
         "methodology_notes": methodology_notes,
+        "recommendation_guardrails": recommendation_guardrails,
     }
     if holdout_meta is not None:
         payload["holdout_validation"] = {
@@ -478,6 +489,7 @@ def validate_analysis_text(
                     "message": "The action plan does not cite any number from the payload.",
                 }
             )
+        issues.extend(_validate_action_guardrails(action_text, payload))
 
     channel_diagnosis_text = sections.get("Channel diagnosis", cleaned_text)
     top_channel = payload.get("top_channel")
@@ -540,6 +552,98 @@ def _pick_channel_name(cpl_map: dict[str, float], *, best: bool) -> str | None:
     if best:
         return min(source.items(), key=lambda item: item[1])[0]
     return max(source.items(), key=lambda item: item[1])[0]
+
+
+def _infer_channel_role(channel_name: str) -> str:
+    normalized = str(channel_name).strip().lower().replace("-", "_")
+    defensive_terms = (
+        "brand",
+        "branded",
+        "retarget",
+        "remarket",
+        "crm",
+        "affiliate",
+        "partner",
+        "loyalty",
+        "defensive",
+    )
+    incremental_terms = (
+        "non_brand",
+        "nonbrand",
+        "generic",
+        "prospecting",
+        "prospect",
+        "acquisition",
+        "video",
+        "display",
+        "tv",
+        "social",
+        "youtube",
+        "meta",
+        "facebook",
+        "instagram",
+        "tiktok",
+    )
+    if any(term in normalized for term in defensive_terms):
+        return "defensive"
+    if any(term in normalized for term in incremental_terms):
+        return "incremental"
+    return "unclear"
+
+
+def _build_recommendation_guardrails(
+    *,
+    model_name: str,
+    holdout_meta: dict[str, Any] | None,
+    bayesian_meta: dict[str, Any] | None,
+    residual_total: float,
+    actual_total: float,
+) -> dict[str, Any]:
+    residual_share = abs((residual_total / actual_total) * 100) if not np.isclose(actual_total, 0.0) else 0.0
+    severe_reasons: list[str] = []
+    caution_reasons: list[str] = []
+
+    if holdout_meta is None:
+        severe_reasons.append("No holdout validation is available.")
+    else:
+        holdout_r_squared = holdout_meta.get("holdout_r_squared")
+        holdout_mape = holdout_meta.get("holdout_mape")
+        if holdout_r_squared is not None and float(holdout_r_squared) < 0.2:
+            severe_reasons.append(f"Holdout R^2 is {float(holdout_r_squared):.2f}.")
+        elif holdout_r_squared is not None and float(holdout_r_squared) < 0.4:
+            caution_reasons.append(f"Holdout R^2 is {float(holdout_r_squared):.2f}.")
+        if holdout_mape is not None and float(holdout_mape) > 30.0:
+            severe_reasons.append(f"Holdout MAPE is {float(holdout_mape):.1f}%.")
+        elif holdout_mape is not None and float(holdout_mape) > 20.0:
+            caution_reasons.append(f"Holdout MAPE is {float(holdout_mape):.1f}%.")
+
+    if residual_share > 20.0:
+        severe_reasons.append(f"Residual gap is {residual_share:.1f}% of actual leads.")
+    elif residual_share > 10.0:
+        caution_reasons.append(f"Residual gap is {residual_share:.1f}% of actual leads.")
+
+    if model_name == "PyMC":
+        diagnostic_status = str((bayesian_meta or {}).get("status", "")).lower()
+        if diagnostic_status in {"insufficient_chains", "sampler_warnings", "weak_convergence"}:
+            severe_reasons.append("Bayesian diagnostics are not strong enough for confident interval claims.")
+
+    if severe_reasons:
+        return {
+            "evidence_strength": "weak",
+            "budget_move_mode": "test_only",
+            "reasons": severe_reasons,
+        }
+    if caution_reasons:
+        return {
+            "evidence_strength": "moderate",
+            "budget_move_mode": "small_test_or_budget_neutral_shift",
+            "reasons": caution_reasons,
+        }
+    return {
+        "evidence_strength": "strong",
+        "budget_move_mode": "controlled_reallocation_allowed",
+        "reasons": [],
+    }
 
 
 def _clean_number(value: Any) -> Any:
@@ -810,6 +914,86 @@ def _contains_payload_number(text: str, payload_numbers: set[str]) -> bool:
 def _normalize_number_token(token: str) -> str:
     numeric_value = round(float(token.replace(",", "")), 2)
     return f"{numeric_value:.2f}".rstrip("0").rstrip(".")
+
+
+def _validate_action_guardrails(
+    action_text: str,
+    payload: dict[str, Any],
+) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    lowered_action = str(action_text).lower()
+    guardrails = payload.get("recommendation_guardrails", {})
+    budget_move_mode = str(guardrails.get("budget_move_mode", "")).lower()
+    evidence_strength = str(guardrails.get("evidence_strength", "")).lower()
+    has_test_language = any(
+        phrase in lowered_action
+        for phrase in ("test", "pilot", "validate", "experiment", "small", "controlled")
+    )
+    has_budget_move_language = any(
+        phrase in lowered_action
+        for phrase in (
+            "reallocate",
+            "shift spend",
+            "shift budget",
+            "move budget",
+            "move spend",
+            "increase spend",
+            "invest more",
+            "scale",
+            "cut spend",
+            "reduce spend",
+            "pause",
+        )
+    )
+
+    if budget_move_mode == "test_only" and has_budget_move_language and not has_test_language:
+        issues.append(
+            {
+                "severity": "error",
+                "code": "aggressive_budget_move_under_weak_evidence",
+                "message": "The recommendation makes a budget move under weak evidence without framing it as a test or validation step.",
+            }
+        )
+
+    percent_tokens = [float(token) for token in re.findall(r"(\d+(?:\.\d+)?)\s*%", action_text)]
+    if evidence_strength in {"weak", "moderate"} and any(value > 20.0 for value in percent_tokens):
+        issues.append(
+            {
+                "severity": "error",
+                "code": "budget_shift_too_large_for_confidence",
+                "message": "The recommendation proposes a budget shift above 20% even though the evidence is not strong.",
+            }
+        )
+
+    for channel in payload.get("channels", []):
+        channel_name = channel.get("name")
+        if not channel_name or bool(channel.get("scale_allowed", True)):
+            continue
+        for sentence in _split_sentences(action_text):
+            lowered_sentence = sentence.lower()
+            if not _sentence_mentions_channel(lowered_sentence, str(channel_name)):
+                continue
+            if any(
+                phrase in lowered_sentence
+                for phrase in (
+                    "scale",
+                    "increase spend",
+                    "invest more",
+                    "reallocate to",
+                    "shift to",
+                    "move budget to",
+                    "add budget to",
+                )
+            ):
+                issues.append(
+                    {
+                        "severity": "error",
+                        "code": "scale_disallowed_channel",
+                        "message": f"The recommendation suggests scaling `{_humanize_channel_name(str(channel_name))}` even though its payload guardrails mark it as not scaleable.",
+                    }
+                )
+                break
+    return issues
 
 
 def _validate_rank_claim(

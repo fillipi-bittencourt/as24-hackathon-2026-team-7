@@ -55,9 +55,6 @@ class PyMCModel:
         noise_sigma = max(
             1e-6, y_std * float(prior_config.get("noise_sigma_scale", 1.0))
         )
-        channel_prior_family = str(
-            prior_config.get("channel_prior_family", "HalfNormal")
-        )
         channel_prior_overrides = prior_config.get("channel_prior_overrides", {})
 
         draws = int(sampler_config.get("draws", 300))
@@ -74,7 +71,6 @@ class PyMCModel:
             channel_coef_nodes = []
             for idx, channel_name in enumerate(channel_names):
                 channel_override = channel_prior_overrides.get(channel_name, {})
-                family = str(channel_override.get("family", channel_prior_family))
                 sigma_value = max(
                     1e-6,
                     y_std
@@ -86,21 +82,12 @@ class PyMCModel:
                     ),
                 )
                 variable_name = f"channel_coef_{idx}"
-                if family == "Normal":
-                    channel_coef_nodes.append(
-                        pm.Normal(
-                            variable_name,
-                            mu=0.0,
-                            sigma=sigma_value,
-                        )
+                channel_coef_nodes.append(
+                    pm.HalfNormal(
+                        variable_name,
+                        sigma=sigma_value,
                     )
-                else:
-                    channel_coef_nodes.append(
-                        pm.HalfNormal(
-                            variable_name,
-                            sigma=sigma_value,
-                        )
-                    )
+                )
             channel_coefs = pm.math.stack(channel_coef_nodes)
 
             if n_controls > 0:

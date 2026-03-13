@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 from datetime import datetime
@@ -48,6 +49,9 @@ PERSISTED_SESSION_KEYS = [
     "pymc_prior_signature",
     "pymc_prior_reasoning",
     "selected_visual_channels",
+    "selected_saturation_channels",
+    "show_only_hill_saturation",
+    "saturation_chart_layout",
     "show_baseline_visual",
     "results_period",
     "current_step",
@@ -153,7 +157,7 @@ def _serialize_value(value: Any) -> Any:
             "dtype": str(value.dtype),
             "value": value.tolist(),
         }
-    if isinstance(value, ModelResult):
+    if _is_model_result_like(value):
         return {
             "__type__": "model_result",
             "value": {
@@ -224,6 +228,33 @@ def _maybe_dict(value: Any) -> dict[str, float] | None:
     if value is None:
         return None
     return dict(value)
+
+
+def _is_model_result_like(value: Any) -> bool:
+    if isinstance(value, ModelResult):
+        return True
+    if not dataclasses.is_dataclass(value):
+        return False
+    field_names = {field.name for field in dataclasses.fields(value)}
+    required_fields = {
+        "model_name",
+        "channel_names",
+        "coefficients",
+        "intercept",
+        "cpl",
+        "contribution",
+        "contribution_pct",
+        "y_pred",
+        "baseline",
+        "baseline_pct",
+        "r_squared",
+        "rmse",
+        "coefficient_lower",
+        "coefficient_upper",
+        "cpl_lower",
+        "cpl_upper",
+    }
+    return required_fields.issubset(field_names)
 
 
 def _slugify_name(value: str) -> str:

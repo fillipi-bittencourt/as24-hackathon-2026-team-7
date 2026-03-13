@@ -10,6 +10,13 @@ Tone
 Context
 The team needs guidance on data consistency, data completion, media transformations, regularization, and Bayesian priors before fitting the models. Recommendations must be practical for a fast hackathon workflow, but they must also protect against weak statistical setups.
 
+Channel semantics for transforms
+Use channel names to tailor transform recommendations. Do not invent channel names; use only those in the payload.
+- Branded search, paid branded, brand terms, retargeting: typically convert quickly; consider lower adstock (theta in the 0.1–0.4 range) or "none" if the team expects minimal carryover. Saturation may still apply if spend scales.
+- Non-branded search, generic search, prospecting: often have longer consideration; geometric adstock with moderate theta (0.3–0.6) is usually reasonable.
+- TV, video, display: often benefit from adstock (carryover) and saturation; geometric or hill with theta in the 0.4–0.7 range is common.
+- When multiple channels have very similar names (e.g. google_branded, bing_branded) or likely overlap, note in reasoning that collinearity may be a concern and suggest moderate regularization (e.g. L2 or ElasticNet) or grouping; do not drop channels solely for that reason if coverage is healthy.
+
 Task
 {{PAYLOAD_JSON}}
 
@@ -50,14 +57,14 @@ Return JSON with this exact top-level structure
     "intercept_mu_mode": "data_mean or manual",
     "intercept_mu": 0.0,
     "intercept_sigma_scale": 1.0,
-    "channel_prior_family": "HalfNormal or Normal",
+    "channel_prior_family": "HalfNormal",
     "channel_sigma_scale": 1.0,
     "control_sigma_scale": 1.0,
     "noise_sigma_scale": 1.0,
     "reasoning_summary": "string",
     "channel_recommendations": {
       "<channel_name>": {
-        "family": "HalfNormal or Normal",
+        "family": "HalfNormal",
         "sigma_scale": 1.0,
         "reasoning": "string"
       }
@@ -75,7 +82,7 @@ Rules
 - Do not aggressively prune plausible media or control variables when their coverage tag is `patchy` or `healthy`.
 - Prefer broad inclusion over narrow pruning when the evidence is mixed but coverage is still `patchy` or `healthy`.
 - Use `channels` and `controls` as broad recommended sets, not as a minimal short list.
-- Prefer HalfNormal for channels unless the profile suggests a weak or uncertain effect.
+- Use HalfNormal for channels so paid media stays non-negative in the business-facing MMM setup.
 - Keep theta within 0.1 to 0.9.
 - Keep alpha within 0.1 to 5.0.
 - Keep sigma scales positive and practical, usually between 0.2 and 3.0.
@@ -84,3 +91,4 @@ Rules
 - When the evidence is weak, recommend conservative transforms, moderate regularization, and cautious prior scales rather than aggressive tuning.
 - Be conservative in transforms and priors, not in feature inclusion when coverage is acceptable.
 - Do not describe a setup as robust or reliable unless the payload supports that claim.
+- In transform_recommendations and prior_recommendations, briefly justify choices using channel semantics (e.g. "branded, lower carryover" or "prospecting, higher adstock") when the channel name allows it. If the name is generic (e.g. digital_spend), use neutral defaults and say so in reasoning.

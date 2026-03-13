@@ -121,6 +121,13 @@ def _sanitize_positive_float(value: Any, default: float, minimum: float = 0.1) -
     return max(minimum, parsed)
 
 
+def _sanitize_channel_prior_family(value: Any) -> str:
+    normalized = str(value).strip()
+    if normalized == "HalfNormal":
+        return "HalfNormal"
+    return "HalfNormal"
+
+
 def _resolve_hybrid_column_selection(
     *,
     raw_df: pd.DataFrame,
@@ -346,10 +353,8 @@ def apply_ai_prior_recommendations(prior_recommendations: dict[str, Any]) -> Non
     if not prior_recommendations:
         return
 
-    channel_family = _sanitize_choice(
-        prior_recommendations.get("channel_prior_family", "HalfNormal"),
-        {"HalfNormal", "Normal"},
-        "HalfNormal",
+    channel_family = _sanitize_channel_prior_family(
+        prior_recommendations.get("channel_prior_family", "HalfNormal")
     )
     channel_sigma_scale = _sanitize_positive_float(
         prior_recommendations.get("channel_sigma_scale", 1.0),
@@ -360,11 +365,7 @@ def apply_ai_prior_recommendations(prior_recommendations: dict[str, Any]) -> Non
     channel_reasoning: dict[str, str] = {}
     for channel in st.session_state.get("channel_cols", []):
         suggestion = channel_overrides_input.get(channel, {})
-        family = _sanitize_choice(
-            suggestion.get("family", channel_family),
-            {"HalfNormal", "Normal"},
-            channel_family,
-        )
+        family = _sanitize_channel_prior_family(suggestion.get("family", channel_family))
         sigma_scale = _sanitize_positive_float(
             suggestion.get("sigma_scale", channel_sigma_scale),
             channel_sigma_scale,

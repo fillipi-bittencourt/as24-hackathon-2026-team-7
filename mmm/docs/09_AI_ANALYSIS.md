@@ -132,6 +132,28 @@ Use the ICE structure for all prompts. Keep Instructions and Context stable; onl
 
 ---
 
+## Channel semantics and recommendation logic
+
+The analysis prompt instructs the LLM to interpret channel names and apply recommendation logic so that "best CPL" does not automatically mean "scale this channel."
+
+- **Branded search / paid branded / brand terms:** Often efficient in-model because they capture high-intent users who might convert via organic. The LLM should recommend **maintain** or **protect**, not "scale." Scaling can cannibalize organic and add cost without proportional incremental gain.
+- **Non-branded / generic / prospecting search:** Treated as incremental. Strong efficiency here is a valid signal for reallocation or scale (within saturation).
+- **Social (paid):** If names suggest brand or retargeting, treat with the same caution as branded search.
+- **TV / video / display:** Consider reach and saturation; prefer "test increment" or "hold and validate" over "scale aggressively" when evidence is directional.
+
+The prompt includes explicit guardrails: do not recommend increasing spend on a channel solely because it has the best CPL if that channel is clearly branded or defensive; instead recommend maintain and reallocate from weaker channels to more incremental ones where possible.
+
+**Evaluation considerations** (what the prompt asks the LLM to consider):
+
+- Statistical soundness: sample size, fit, holdout, residual gap.
+- Channel role and semantics: infer from names; branded/defensive vs incremental.
+- Cannibalization: paid branded vs organic; do not recommend scaling branded solely on CPL.
+- Incrementality vs attribution: prefer scale on clearly incremental channels.
+- Saturation and scalability: note when "maintain" or "test" is appropriate.
+- Cross-model stability and actionability of recommendations.
+
+---
+
 ## Requested Output Format
 
 The app supports two modes.
@@ -149,12 +171,12 @@ Return four sections:
 
 Return six sections:
 
-1. **Executive summary** with 3 bullets and explicit numbers
-2. **Channel diagnosis** with strongest and weakest channels
-3. **Model quality and trust limits**
-4. **Cross-model consistency check** when comparison data exists
-5. **Action plan** for the next 30 and 60 days
-6. **Risks and assumptions**
+1. **Executive summary** with 3 bullets and explicit numbers. If the best CPL is on a branded/defensive channel, do not frame the main recommendation as "scale that channel"; frame as efficiency ranking and reallocate from weakest or maintain branded and test shift to incremental.
+2. **Statistical rigor check** — model quality, holdout, residual gap, trust limits.
+3. **Channel diagnosis** — strongest and weakest by CPL and contribution; for each major channel state whether it is likely incremental or defensive/branded (cannibalization risk); call out when the "best" CPL is on a channel where scaling would cannibalize organic.
+4. **Cross-model consistency** when comparison_table exists.
+5. **Action plan** — 30- and 60-day steps; distinguish maintain (e.g. branded), test/scale (incremental), and reduce/reallocate from; do not recommend "scale" on branded/defensive channels.
+6. **Risks and assumptions** — modeling and data limitations, cannibalization risk where relevant, channel-role assumption.
 
 ---
 
