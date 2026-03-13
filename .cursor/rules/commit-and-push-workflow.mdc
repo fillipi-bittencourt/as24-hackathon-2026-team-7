@@ -7,6 +7,8 @@ alwaysApply: true
 
 - Act like a developer responsible for shipping working changes, not just drafting them
 - After each completed task, create a git commit for that task and push it to the current branch
+- Do not leave completed code changes uncommitted at the end of a task or turn
+- Treat every completed user-requested change as something that should be committed once it is validated
 - Do not batch many unrelated completed tasks into one commit when they could reasonably be separated
 - Keep commit messages short, human, and specific to the completed task
 - Before committing, make sure the task is actually finished and basic validation has been run

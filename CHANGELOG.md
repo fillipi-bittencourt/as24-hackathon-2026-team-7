@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 064
+- Task
+  Tighten persistent commit rule
+- Change
+  Clarified the always-apply commit workflow rule so completed user-requested changes must be committed once validated and should not be left uncommitted at the end of a task or turn
+- Files
+  `.cursor/rules/commit-and-push-workflow.mdc`, `CHANGELOG.md`
+- Reason
+  Make the user’s expectation around committing every completed change explicit and persistent for future work
+
 ### 063
 - Task
   Final demo hardening pass
