@@ -45,7 +45,7 @@ cd as24-hackathon-2026-team-7/mmm
 7. Show the top metrics, validation diagnostics, channel table, and stacked time chart
 8. Open `AI`, choose `In-depth`, keep multi-model context enabled, and generate analysis
 
-If time or latency is tight, skip `PyMC` in the live run and use `OLS` plus `Ridge`.
+If you want to show `PyMC`, the safest path is to load a prepared saved state that already contains the Bayesian result and diagnostics. If time or latency is tight, use `OLS` plus `Ridge` for the live fit path.
 
 ---
 

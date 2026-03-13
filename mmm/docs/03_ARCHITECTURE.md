@@ -11,15 +11,19 @@ csv data
   -> AI analysis and exports
 ```
 
-The live app is organized into a sidebar step menu with 7 sections:
+The live app is organized into a sidebar workflow with 7 numbered steps plus a separate guide section:
 
 1. `Data`
-2. `Config`
-3. `Priors`
-4. `Info`
+2. `Overview`
+3. `Config`
+4. `Priors`
 5. `Fit`
 6. `Results`
 7. `AI`
+
+Separate sidebar help section:
+
+- `Guide`
 
 ---
 
@@ -75,9 +79,9 @@ The live app is organized into a sidebar step menu with 7 sections:
 ## Data flow
 
 1. `Data` loads and validates the file.
-2. `Config` applies transforms and stores the transformed matrix.
-3. `Priors` stores Bayesian settings for `PyMC`.
-4. `Fit` runs selected models and stores `ModelResult` objects.
+2. `Overview` surfaces validated dataset diagnostics, target behavior, and multicollinearity checks.
+3. `Config` applies transforms and stores the transformed matrix.
+4. `Priors` stores Bayesian settings for `PyMC`.
 5. `Fit` runs the selected models and stores their outputs plus validation metadata.
 6. `Results` applies the selected model, channel filter, and period filter to visual outputs and exports.
 7. `AI` builds an aggregated payload from current results and generates either a short or in-depth explanation.
@@ -94,4 +98,4 @@ The safest live path is still:
 - `Results`
 - `AI`
 
-`PyMC` is available, but should be treated as optional in a live demo unless its latency has already been tested.
+`PyMC` is available, but the safest demo path is to show it from a prepared saved state unless its latency and sampler quality have already been tested on the presentation machine.

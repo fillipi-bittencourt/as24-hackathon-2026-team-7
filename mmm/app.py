@@ -109,6 +109,22 @@ HOLDOUT_FRACTION = 0.2
 CURRENT_DATA_LABEL = "Current loaded data"
 
 
+def is_pymc_available() -> bool:
+    try:
+        import pymc  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def is_anthropic_available() -> bool:
+    try:
+        import anthropic  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
 def render_ai_applied_setup_summary(
     setup_recommendations: dict[str, Any],
 ) -> None:
@@ -352,12 +368,24 @@ def compute_saturation_status(
 def build_saturation_curve_chart(
     df: pd.DataFrame,
     channel_names: list[str],
+    adstock_type: dict[str, str],
+    adstock_params: dict[str, float],
     saturation_type: dict[str, str],
     saturation_params: dict[str, dict[str, float]],
 ) -> alt.Chart | None:
     curve_rows: list[dict[str, Any]] = []
+    pre_saturation_df = pd.DataFrame(
+        {
+            channel: build_pre_saturation_series(
+                df[channel].to_numpy(dtype=np.float64),
+                adstock_kind=adstock_type.get(channel, "geometric"),
+                theta=float(adstock_params.get(channel, 0.0)),
+            )
+            for channel in channel_names
+        }
+    )
     for channel in channel_names:
-        max_spend = float(df[channel].max())
+        max_spend = float(pre_saturation_df[channel].max())
         curve_max = max(max_spend * 2.0, 1.0)
         spend_grid = np.linspace(0.0, curve_max, 60, dtype=np.float64)
         sat_kind = saturation_type.get(channel, "log")
@@ -586,12 +614,12 @@ def load_candidate_dataframe() -> pd.DataFrame | None:
             if local_name not in select_options:
                 select_options.append(local_name)
 
-        default_option = (
-            uploaded_name
-            or CURRENT_DATA_LABEL
-            if st.session_state.get("loaded_df") is not None
-            else local_names[0]
-        )
+        if uploaded_name:
+            default_option = uploaded_name
+        elif st.session_state.get("loaded_df") is not None:
+            default_option = CURRENT_DATA_LABEL
+        else:
+            default_option = local_names[0]
 
         selector_key = "data_source_selection"
         if (
@@ -1296,7 +1324,7 @@ def render_priors_tab() -> None:
         st.session_state["pymc_sampler_config"] = sampler_config
         st.session_state["pymc_prior_signature"] = new_signature
 
-        if old_signature and old_signature != new_signature and remove_model_outputs(["PyMC"]):
+        if old_signature != new_signature and "PyMC" in st.session_state["model_results"] and remove_model_outputs(["PyMC"]):
             st.warning("PyMC priors changed. The previous PyMC result was cleared.")
 
         st.success("PyMC priors saved")
@@ -1319,6 +1347,9 @@ def render_fit_tab() -> None:
         ],
     )
     available_models = list(MODEL_BUILDERS.keys())
+    if not is_pymc_available():
+        available_models = [model_name for model_name in available_models if model_name != "PyMC"]
+        st.info("PyMC is not installed in this environment, so only the frequentist models are available.")
     selected_models = st.multiselect(
         "Models to fit",
         options=available_models,
@@ -2287,7 +2318,9 @@ def render_ai_tab() -> None:
     if best_value and worst_value and worst_value > 0:
         reallocation_pct = min(50, round((worst_value - best_value) / worst_value * 100))
 
-    provider_options = ["openai", "anthropic"]
+    provider_options = ["openai"]
+    if is_anthropic_available():
+        provider_options.append("anthropic")
     render_definitions_expander(
         "Definitions for this tab",
         [
@@ -2301,7 +2334,9 @@ def render_ai_tab() -> None:
     provider = st.radio(
         "Provider",
         options=provider_options,
-        index=provider_options.index(st.session_state.get("ai_provider", "openai")),
+        index=provider_options.index(st.session_state.get("ai_provider", provider_options[0]))
+        if st.session_state.get("ai_provider") in provider_options
+        else 0,
         horizontal=True,
         key="ai_provider",
         help="Choose which LLM provider to use for the AI analysis.",

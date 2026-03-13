@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 063
+- Task
+  Final demo hardening pass
+- Change
+  Tightened the final demo path by fixing upload-vs-local source selection, aligning saturation curve generation with the current Results wiring, hiding unsupported optional PyMC and Anthropic options in lightweight environments, cleaning the demo guidance to prefer saved-state PyMC demos, and syncing the architecture and model docs to the shipped behavior
+- Files
+  `mmm/app.py`, `README.md`, `mmm/README.md`, `docs/CHECKLIST.md`, `docs/DEMO_PREP.md`, `mmm/docs/03_ARCHITECTURE.md`, `mmm/docs/06_MODELS.md`, `CHANGELOG.md`
+- Reason
+  Remove the last avoidable demo surprises so the app, environment behavior, and presenter-facing documentation all point to the same safest path
+
 ### 062
 - Task
   Demo cohesion and diagnostics cleanup

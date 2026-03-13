@@ -36,7 +36,7 @@ Use this as the default live path unless you have already tested the full advanc
 16. Keep `Include all fitted models in the analysis context` enabled
 17. Generate analysis
 
-Avoid fitting `PyMC` live unless you already tested that exact machine and dataset.
+If you want to show `PyMC` in the demo, prefer loading a prepared saved state that already contains the Bayesian results and diagnostics instead of fitting it live.
 
 ---
 
@@ -77,7 +77,7 @@ Avoid fitting `PyMC` live unless you already tested that exact machine and datas
 ## If latency hits
 
 - if AI is slow, stop after `Results`
-- if `PyMC` is slow, skip it
+- if `PyMC` is slow, switch to a prepared saved state or skip it
 - if business data is unstable, switch to the sample file immediately
 - if the app is slow, show prepared screenshots and narrate the findings
 

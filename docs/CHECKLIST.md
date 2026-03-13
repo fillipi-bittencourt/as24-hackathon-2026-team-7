@@ -42,8 +42,9 @@ Use this checklist to verify the current app, not to rebuild it from scratch.
 - [ ] fit `OLS`
 - [ ] fit `Ridge`
 - [ ] confirm both appear in the comparison table
-- [ ] confirm `Lasso`, `ElasticNet`, and `PyMC` are available for optional deeper comparison
-- [ ] if using `PyMC`, confirm priors can be saved from the `Priors` tab before fitting
+- [ ] confirm `Lasso` and `ElasticNet` are available for optional deeper comparison
+- [ ] if `PyMC` is installed, confirm priors can be saved from the `Priors` tab before fitting
+- [ ] if demoing `PyMC`, confirm a prepared saved state is available as the safest presentation path
 
 ---
 
@@ -96,12 +97,12 @@ Use this checklist to verify the current app, not to rebuild it from scratch.
 
 1. Use the sample file if there is any uncertainty about business data.
 2. Use the sidebar step menu to move from `Data` to `AI`.
-3. Use `Info` only if the audience needs a quick MMM explainer.
+3. Use `Guide` only if the audience needs a quick MMM explainer.
 4. Keep the transform defaults.
 5. Fit `OLS` and `Ridge`.
 6. Show the top metrics, validation view, and channel breakdown in `Results`.
 7. Generate one `In-depth` AI analysis if latency is acceptable.
-8. Skip `PyMC` live unless it has already been tested on that machine.
+8. If you want to show `PyMC`, prefer loading a prepared saved state instead of fitting it live on the presentation machine.
 
 ---
 

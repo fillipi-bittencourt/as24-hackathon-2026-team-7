@@ -17,7 +17,7 @@ The product is a runnable **Streamlit MMM app** in `mmm/`.
 - current model support: `OLS`, `Ridge`, `Lasso`, `ElasticNet`, `PyMC`
 - current export support: results and AI analysis as `CSV` and `PDF`
 - sample dataset included: `mmm/data/mmm_demo_sample.csv`
-- recommended live demo path: use the sample file first, fit `OLS` and `Ridge`, then show `Results` and `AI`
+- recommended live demo path: use the sample file first, fit `OLS` and `Ridge`, and use a prepared saved state if you want to demo `PyMC` without live sampling risk
 
 ---
 
