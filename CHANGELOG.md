@@ -11,6 +11,16 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 065
+- Task
+  Final project scrutiny cleanup
+- Change
+  Tightened the demo experience by improving the Overview VIF calculation, removing repo-local saved session artifacts from the shipped demo state, and aligning the remaining demo and architecture docs to the current workflow and the saved-state PyMC presentation strategy
+- Files
+  `mmm/src/data_overview.py`, `README.md`, `mmm/README.md`, `docs/CHECKLIST.md`, `docs/DEMO_PREP.md`, `mmm/docs/03_ARCHITECTURE.md`, `mmm/docs/06_MODELS.md`, `CHANGELOG.md`
+- Reason
+  Remove the last avoidable confusion and make the shipped branch cleaner, more coherent, and safer for the presentation flow
+
 ### 064
 - Task
   Tighten persistent commit rule

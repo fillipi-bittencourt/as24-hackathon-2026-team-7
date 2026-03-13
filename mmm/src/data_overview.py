@@ -298,10 +298,12 @@ def build_overview_vif_df(
     if matrix.shape[0] <= len(columns):
         return pd.DataFrame(columns=["Variable", "VIF", "Risk tag"])
 
+    design_matrix = np.column_stack([np.ones(matrix.shape[0], dtype=np.float64), matrix])
+
     rows: list[dict[str, Any]] = []
-    for idx, variable in enumerate(columns):
+    for idx, variable in enumerate(columns, start=1):
         try:
-            vif_value = float(variance_inflation_factor(matrix, idx))
+            vif_value = float(variance_inflation_factor(design_matrix, idx))
         except Exception:
             vif_value = float("inf")
         rows.append(
