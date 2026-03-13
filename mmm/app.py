@@ -10,13 +10,23 @@ import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 from src.ai.client import (
     build_payload,
     get_setup_recommendations,
     get_summary,
 )
-from src.app_state import compute_signature, compute_transform_fingerprint, init_state
+from src.app_state import (
+    clear_setup_guidance,
+    clear_model_outputs,
+    clear_transformed_inputs,
+    compute_signature,
+    compute_transform_fingerprint,
+    init_state,
+    remove_model_outputs,
+    replace_state,
+)
 from src.export_helpers import (
     build_column_selection_rows,
     build_complete_overview_export_df,
@@ -38,6 +48,7 @@ from src.results_helpers import (
     build_stacked_period_share_chart,
     build_stacked_time_decomposition_chart,
     compute_display_attribution,
+    compute_display_attribution_vectors,
     compute_mape_non_zero,
     compute_view_channel_metrics,
     format_cpl,
@@ -47,6 +58,12 @@ from src.results_helpers import (
     pick_best_channel,
     pick_worst_channel,
 )
+from src.session_persistence import (
+    has_persistable_state,
+    list_saved_sessions,
+    load_session_state,
+    save_session_state,
+)
 from src.setup_assistant import (
     apply_ai_column_recommendations,
     apply_ai_prior_recommendations,
@@ -55,7 +72,18 @@ from src.setup_assistant import (
     resolve_ai_credentials,
 )
 from src.transforms import hill_saturation, log_saturation, transform_media
-from src.utils import convert_mmm_data, normalize_column_names, validate_mmm_data
+from src.ui_content import (
+    build_table_column_config,
+    render_definitions_expander,
+    render_info_tab,
+    render_reference_values_expander,
+)
+from src.utils import (
+    compute_dataframe_signature,
+    convert_mmm_data,
+    normalize_column_names,
+    validate_mmm_data,
+)
 
 
 MODEL_BUILDERS = {
@@ -68,6 +96,7 @@ MODEL_BUILDERS = {
 
 STEP_DESCRIPTIONS = {
     "Data": "Load the dataset, confirm the columns, and validate the input before any modeling.",
+    "Overview": "Inspect validated dataset quality, target behavior, and multicollinearity before configuring the model.",
     "Config": "Choose media transforms and regularization settings for the modeling step.",
     "Priors": "Review or edit Bayesian prior assumptions before using PyMC.",
     "Info": "Learn what each MMM model and transform does, when to use it, and how to read the outputs.",
@@ -77,31 +106,7 @@ STEP_DESCRIPTIONS = {
 }
 
 HOLDOUT_FRACTION = 0.2
-
-
-def render_definitions_expander(
-    title: str,
-    definitions: list[tuple[str, str]],
-) -> None:
-    with st.expander(title, expanded=False):
-        for label, description in definitions:
-            st.markdown(f"**{label}**  \n{description}")
-
-
-def render_reference_values_expander(
-    title: str,
-    reference_rows: list[tuple[str, str, str]],
-) -> None:
-    with st.expander(title, expanded=False):
-        reference_df = pd.DataFrame(
-            reference_rows,
-            columns=["Item", "Reference", "How to use it"],
-        )
-        st.dataframe(
-            reference_df,
-            column_config=build_table_column_config(reference_df.columns),
-            width="stretch",
-        )
+CURRENT_DATA_LABEL = "Current loaded data"
 
 
 def render_ai_applied_setup_summary(
@@ -195,101 +200,6 @@ def render_ai_applied_setup_summary(
             quality_col2.markdown("**Data completion actions suggested by the AI**")
             for item in completion_actions:
                 quality_col2.write(f"- {item}")
-
-
-def build_table_column_config(columns: list[str] | pd.Index) -> dict[str, Any]:
-    help_text = {
-        "Date": "The date or period represented by the row.",
-        "date": "The date or period represented by the row.",
-        "Item": "The field or concept being described.",
-        "Reference": "A benchmark range or default value used for interpretation.",
-        "How to use it": "Short guidance on how to apply the reference value.",
-        "Selected item": "The dataset field or selection decision being explained.",
-        "Value": "The current value shown for that row.",
-        "Reasoning": "Why the app or AI selected or recommended that value.",
-        "Channel": "The marketing channel or driver being evaluated.",
-        "Adstock": "The carryover transform used for the channel.",
-        "Theta": "Carryover strength for geometric adstock. Higher means longer carryover.",
-        "Saturation": "The diminishing-returns transform used for the channel.",
-        "Alpha": "Hill saturation steepness parameter.",
-        "K": "Hill half-saturation point where the curve reaches about half its maximum response.",
-        "Family": "The prior distribution family used for the channel coefficient.",
-        "Sigma scale": "How wide the prior uncertainty is before the data updates it.",
-        "Model": "The fitted model being compared.",
-        "R² in-sample": "Share of variation explained by the model on the same data used for fitting.",
-        "RMSE in-sample": "Average prediction error on the same data used for fitting.",
-        "MAE in-sample": "Average absolute prediction error on the same data used for fitting.",
-        "MAPE in-sample (%)": "Average percentage prediction error on non-zero target rows in the fitting sample.",
-        "MAPE in-sample coverage": "How many non-zero target rows were used in the in-sample MAPE calculation.",
-        "R² holdout": "Share of variation explained on the holdout window not used for fitting.",
-        "RMSE holdout": "Average prediction error on the holdout window.",
-        "MAE holdout": "Average absolute prediction error on the holdout window.",
-        "MAPE holdout (%)": "Average percentage prediction error on non-zero target rows in the holdout window.",
-        "MAPE holdout coverage": "How many non-zero holdout rows were used in the holdout MAPE calculation.",
-        "Coefficient": "Estimated channel effect in leads per unit of transformed channel input.",
-        "Coefficient lower": "Lower uncertainty bound for the channel coefficient, when available.",
-        "Coefficient upper": "Upper uncertainty bound for the channel coefficient, when available.",
-        "CPL": "Cost per lead. Lower means more efficient lead generation.",
-        "CPL lower": "Lower uncertainty bound for CPL, when available.",
-        "CPL upper": "Upper uncertainty bound for CPL, when available.",
-        "Contribution": "Total modeled leads attributed to the channel in the selected view.",
-        "Contribution share (%)": "Share of actual leads attributed to the channel in the selected view.",
-        "Share": "Share of actual leads attributed to the channel in the selected view.",
-        "Share_pct": "Share of actual leads attributed to the channel in the selected view.",
-        "Spend total": "Total spend for the channel in the selected period.",
-        "Average weekly spend": "Average spend per period in the selected view.",
-        "Average weekly contribution": "Average modeled leads contributed per period in the selected view.",
-        "Adstock": "The carryover transform used for the channel.",
-        "Carryover": "Approximate number of periods the channel effect lingers after spend.",
-        "Saturation status": "Whether the channel looks under-saturated, near saturation, or over-saturated.",
-        "Saturation note": "Short interpretation of the current saturation status.",
-        "What it does": "Plain-language description of what the model or concept does.",
-        "Best use case": "When this model or concept is most useful.",
-        "Strength": "Main reason to prefer this model or concept.",
-        "Watch out for": "Main limitation or caveat to keep in mind.",
-        "Setting": "The transform or MMM setting being described.",
-        "Use it when": "The situation where this transform choice is appropriate.",
-        "Interpretation": "How to read the setting in MMM terms.",
-        "Output": "The metric, chart, or artifact shown by the app.",
-        "How to use it": "How to interpret or use that output in business terms.",
-    }
-    number_columns = {
-        "Theta",
-        "Alpha",
-        "K",
-        "Sigma scale",
-        "R² in-sample",
-        "RMSE in-sample",
-        "MAE in-sample",
-        "MAPE in-sample (%)",
-        "R² holdout",
-        "RMSE holdout",
-        "MAE holdout",
-        "MAPE holdout (%)",
-        "Coefficient",
-        "Coefficient lower",
-        "Coefficient upper",
-        "Contribution",
-        "Contribution share (%)",
-        "Share",
-        "Share_pct",
-        "Spend total",
-        "Average weekly spend",
-        "Average weekly contribution",
-    }
-    config: dict[str, Any] = {}
-    for column in columns:
-        column_name = str(column)
-        help_value = help_text.get(column_name)
-        if not help_value:
-            continue
-        if column_name in number_columns:
-            config[column_name] = st.column_config.NumberColumn(column_name, help=help_value)
-        elif column_name in {"date", "Date"}:
-            config[column_name] = st.column_config.DateColumn(column_name, help=help_value)
-        else:
-            config[column_name] = st.column_config.TextColumn(column_name, help=help_value)
-    return config
 
 
 def compute_holdout_diagnostics(
@@ -406,28 +316,12 @@ def apply_transform_configuration(
     refit_needed = False
     if st.session_state["model_results"]:
         if previous_fingerprint and previous_fingerprint != fingerprint:
-            st.session_state["model_results"] = {}
-            st.session_state["model_results_meta"] = {}
-            st.session_state["selected_model"] = None
-            st.session_state["ai_summary"] = None
-            st.session_state["ai_summary_meta"] = None
+            clear_model_outputs()
             fits_cleared = True
         elif previous_fingerprint == fingerprint and previous_reg != current_reg:
             affected_models = ["Ridge", "Lasso", "ElasticNet"]
-            removed_any = False
-            for model_name in affected_models:
-                if model_name in st.session_state["model_results"]:
-                    st.session_state["model_results"].pop(model_name, None)
-                    st.session_state["model_results_meta"].pop(model_name, None)
-                    removed_any = True
+            removed_any = remove_model_outputs(affected_models)
             if removed_any:
-                if st.session_state.get("selected_model") in affected_models:
-                    st.session_state["selected_model"] = next(
-                        iter(st.session_state["model_results"].keys()),
-                        None,
-                    )
-                st.session_state["ai_summary"] = None
-                st.session_state["ai_summary_meta"] = None
                 fits_cleared = True
             else:
                 refit_needed = True
@@ -515,6 +409,8 @@ def build_saturation_curve_chart(
 def get_step_status(step_name: str) -> str:
     if step_name in {"Data", "Info"}:
         return "ready"
+    if step_name == "Overview":
+        return "ready" if st.session_state.get("valid") else "needs data"
     if step_name in {"Config", "Priors"}:
         return "ready" if st.session_state.get("valid") else "needs data"
     if step_name == "Fit":
@@ -532,8 +428,9 @@ def build_step_label(step_number: int, step_name: str) -> str:
 
 
 def render_sidebar_step_menu() -> str:
-    ordered_steps = ["Data", "Config", "Priors", "Info", "Fit", "Results", "AI"]
+    ordered_steps = ["Data", "Overview", "Config", "Priors", "Fit", "Results", "AI"]
     current_step = st.session_state.get("current_step", "Data")
+    st.sidebar.subheader("Browse")
     st.sidebar.caption(
         "Click a step to open it. Steps with missing prerequisites still open and explain what is needed next."
     )
@@ -550,8 +447,122 @@ def render_sidebar_step_menu() -> str:
             st.session_state["current_step"] = step_name
 
     selected_step = st.session_state.get("current_step", current_step)
-    st.sidebar.caption(STEP_DESCRIPTIONS[selected_step])
+    if selected_step in ordered_steps:
+        st.sidebar.caption(STEP_DESCRIPTIONS[selected_step])
+    else:
+        st.sidebar.caption("Choose a workflow step to continue the guided modeling flow.")
     return selected_step
+
+
+def format_saved_session_label(session_info: dict[str, str]) -> str:
+    source = session_info.get("source") or "no source"
+    saved_at = session_info.get("saved_at") or "unknown time"
+    models = session_info.get("models") or "no fitted models"
+    return f"{session_info['display_name']} | {saved_at} | {source} | {models}"
+
+
+def format_saved_session_option(
+    slug: str,
+    session_by_slug: dict[str, dict[str, str]],
+) -> str:
+    session_info = session_by_slug.get(slug)
+    if session_info is None:
+        return str(slug)
+    return format_saved_session_label(session_info)
+
+
+def render_session_controls() -> None:
+    st.sidebar.divider()
+    st.sidebar.subheader("Session")
+    st.sidebar.caption(
+        "Save the current MMM state locally, reload a previous run, or clear the current working state."
+    )
+
+    has_state = has_persistable_state(st.session_state)
+    save_name = st.sidebar.text_input(
+        "Save name",
+        key="session_save_name",
+        help="Optional local name for this saved MMM state.",
+    )
+    if st.sidebar.button(
+        "Save current state",
+        use_container_width=True,
+        disabled=not has_state,
+        help="Save the loaded data, transforms, fitted model outputs, and AI outputs to a local session file.",
+    ):
+        try:
+            saved_name = save_session_state(st.session_state, save_name)
+            st.session_state["session_notice"] = {
+                "level": "success",
+                "text": f"Saved session `{saved_name}`.",
+            }
+            st.rerun()
+        except Exception as exc:
+            st.sidebar.error(f"Could not save the current state: {exc}")
+
+    saved_sessions = list_saved_sessions()
+    session_by_slug = {
+        session_info["slug"]: session_info for session_info in saved_sessions
+    }
+    selected_slug = None
+    if saved_sessions:
+        selected_slug = st.sidebar.selectbox(
+            "Saved sessions",
+            options=list(session_by_slug.keys()),
+            format_func=lambda slug: format_saved_session_option(slug, session_by_slug),
+            key="selected_saved_session",
+            help="Choose a previously saved MMM state to restore.",
+        )
+    else:
+        st.sidebar.caption("No saved sessions yet.")
+
+    load_col, clear_col = st.sidebar.columns(2)
+    if load_col.button(
+        "Load saved",
+        use_container_width=True,
+        disabled=selected_slug is None,
+        help="Replace the current working state with the selected saved state.",
+    ):
+        try:
+            restored_state = load_session_state(str(selected_slug))
+            loaded_label = session_by_slug[str(selected_slug)]["display_name"]
+            replace_state(restored_state, preserve_keys={"manual_ai_api_key"})
+            st.session_state["data_source_selection"] = CURRENT_DATA_LABEL
+            st.session_state["session_notice"] = {
+                "level": "success",
+                "text": f"Loaded session `{loaded_label}`.",
+            }
+            st.rerun()
+        except Exception as exc:
+            st.sidebar.error(f"Could not load the saved state: {exc}")
+
+    if clear_col.button(
+        "Clear state",
+        use_container_width=True,
+        disabled=not has_state,
+        help="Reset the MMM workflow state and keep only the manual API key override.",
+    ):
+        replace_state(preserve_keys={"manual_ai_api_key"})
+        st.session_state["session_notice"] = {
+            "level": "info",
+            "text": "Cleared the current MMM state.",
+        }
+        st.rerun()
+
+
+def render_info_sidebar_section() -> None:
+    st.sidebar.divider()
+    st.sidebar.subheader("Guide")
+    st.sidebar.caption(
+        "Open the MMM guide for model selection, transform choices, and result interpretation."
+    )
+    if st.sidebar.button(
+        "Open guide",
+        key="nav_info_page",
+        use_container_width=True,
+        type="primary" if st.session_state.get("current_step") == "Info" else "secondary",
+    ):
+        st.session_state["current_step"] = "Info"
 
 
 def load_candidate_dataframe() -> pd.DataFrame | None:
@@ -563,33 +574,66 @@ def load_candidate_dataframe() -> pd.DataFrame | None:
 
     local_files = sorted(Path("data").glob("*.csv"))
     selected_name = None
+    local_names = [path.name for path in local_files]
+    uploaded_name = uploaded_file.name if uploaded_file is not None else None
     if local_files:
+        select_options: list[str] = []
+        if st.session_state.get("loaded_df") is not None:
+            select_options.append(CURRENT_DATA_LABEL)
+        if uploaded_name and uploaded_name not in select_options:
+            select_options.append(uploaded_name)
+        for local_name in local_names:
+            if local_name not in select_options:
+                select_options.append(local_name)
+
+        default_option = (
+            uploaded_name
+            or CURRENT_DATA_LABEL
+            if st.session_state.get("loaded_df") is not None
+            else local_names[0]
+        )
+
+        selector_key = "data_source_selection"
+        if (
+            selector_key not in st.session_state
+            or st.session_state[selector_key] not in select_options
+        ):
+            st.session_state[selector_key] = default_option
+
         selected_name = st.selectbox(
             "Or pick a file from data/",
-            options=[path.name for path in local_files],
-            index=0,
+            options=select_options,
+            key=selector_key,
             help="Choose a CSV that already exists in the app data folder.",
         )
     else:
         st.info("No files in data/ yet — use the uploader above.")
 
     candidate_df = None
+    candidate_signature = None
     source_name = None
-    if uploaded_file is not None:
+    use_uploaded = uploaded_file is not None and (
+        selected_name is None or selected_name == uploaded_name
+    )
+    if use_uploaded:
         try:
             uploaded_file.seek(0)
             candidate_df = pd.read_csv(uploaded_file)
             candidate_df, rename_map = normalize_column_names(candidate_df)
+            candidate_signature = compute_dataframe_signature(candidate_df)
             source_name = uploaded_file.name
             st.session_state["column_rename_map"] = rename_map
         except Exception as exc:
             st.error(f"Could not read uploaded CSV: {exc}")
             return st.session_state.get("loaded_df")
-    elif selected_name:
-        selected_path = next(path for path in local_files if path.name == selected_name)
+    elif selected_name and selected_name != CURRENT_DATA_LABEL:
+        selected_path = next((path for path in local_files if path.name == selected_name), None)
+        if selected_path is None:
+            return st.session_state.get("loaded_df")
         try:
             candidate_df = pd.read_csv(selected_path)
             candidate_df, rename_map = normalize_column_names(candidate_df)
+            candidate_signature = compute_dataframe_signature(candidate_df)
             source_name = selected_path.name
             st.session_state["column_rename_map"] = rename_map
         except Exception as exc:
@@ -597,8 +641,21 @@ def load_candidate_dataframe() -> pd.DataFrame | None:
             return st.session_state.get("loaded_df")
 
     if candidate_df is not None:
+        source_changed = source_name != st.session_state.get("loaded_source")
+        signature_changed = candidate_signature != st.session_state.get("loaded_df_signature")
         st.session_state["loaded_df"] = candidate_df
+        st.session_state["loaded_df_signature"] = candidate_signature
         st.session_state["loaded_source"] = source_name
+        if source_changed or signature_changed:
+            clear_setup_guidance()
+            if st.session_state.get("valid"):
+                st.session_state["valid"] = False
+                st.session_state["df"] = None
+                clear_transformed_inputs()
+                st.session_state["last_data_message"] = {
+                    "level": "info",
+                    "text": "The loaded dataset changed. Validate the dataset before continuing.",
+                }
 
     return st.session_state.get("loaded_df")
 
@@ -711,7 +768,13 @@ def render_data_tab() -> None:
             tuple(st.session_state.get("control_cols", [])),
         )
 
-        converted = convert_mmm_data(raw_df, date_col, target_col, channel_cols, control_cols)
+        converted, aggregated_duplicate_rows = convert_mmm_data(
+            raw_df,
+            date_col,
+            target_col,
+            channel_cols,
+            control_cols,
+        )
         ok, errors, warnings = validate_mmm_data(
             converted,
             date_col,
@@ -738,34 +801,25 @@ def render_data_tab() -> None:
             st.session_state["valid"] = True
 
             if previous_signature != new_signature:
-                st.session_state["transforms_applied"] = False
-                st.session_state["transform_fingerprint"] = None
-                st.session_state["X_transformed"] = None
-                st.session_state["y"] = None
-                st.session_state["model_results"] = {}
-                st.session_state["model_results_meta"] = {}
-                st.session_state["selected_model"] = None
-                st.session_state["ai_summary"] = None
+                clear_transformed_inputs()
+                clear_setup_guidance()
                 if previous_signature[1] is not None:
                     st.info("Channel selection updated — re-apply transforms in Config and re-fit models.")
 
             st.success(
                 f"Loaded {len(prepared)} rows with columns {', '.join([date_col, target_col, *channel_cols])}"
             )
+            if aggregated_duplicate_rows > 0:
+                st.warning(
+                    f"Duplicate dates were aggregated by sum before validation. Consolidated {aggregated_duplicate_rows} extra row(s)."
+                )
             if warnings:
                 st.warning(" ".join(warnings))
         else:
             st.session_state["valid"] = False
             st.session_state["df"] = None
-            st.session_state["transforms_applied"] = False
-            st.session_state["transform_fingerprint"] = None
-            st.session_state["X_transformed"] = None
-            st.session_state["y"] = None
-            st.session_state["model_results"] = {}
-            st.session_state["model_results_meta"] = {}
-            st.session_state["selected_model"] = None
-            st.session_state["ai_summary"] = None
-            st.session_state["ai_summary_meta"] = None
+            clear_transformed_inputs()
+            clear_setup_guidance()
             for error in errors:
                 st.error(error)
 
@@ -917,6 +971,289 @@ def render_data_tab() -> None:
                 if prior_rows:
                     st.markdown("**Suggested priors**")
                     st.dataframe(pd.DataFrame(prior_rows), width="stretch")
+
+
+def build_overview_target_summary(target_series: pd.Series) -> pd.DataFrame:
+    target_values = target_series.astype(float)
+    mean_value = float(target_values.mean()) if len(target_values) > 0 else 0.0
+    std_value = float(target_values.std(ddof=0)) if len(target_values) > 0 else 0.0
+    cv_value = (std_value / abs(mean_value)) if not math.isclose(mean_value, 0.0) else 0.0
+    return pd.DataFrame(
+        [
+            {"Metric": "Mean", "Value": round(mean_value, 2)},
+            {"Metric": "Median", "Value": round(float(target_values.median()), 2)},
+            {"Metric": "Std dev", "Value": round(std_value, 2)},
+            {"Metric": "Min", "Value": round(float(target_values.min()), 2)},
+            {"Metric": "Max", "Value": round(float(target_values.max()), 2)},
+            {"Metric": "P10", "Value": round(float(target_values.quantile(0.10)), 2)},
+            {"Metric": "P90", "Value": round(float(target_values.quantile(0.90)), 2)},
+            {"Metric": "Coefficient of variation", "Value": round(cv_value, 3)},
+        ]
+    )
+
+
+def build_overview_input_diagnostics(
+    *,
+    df: pd.DataFrame,
+    target_col: str,
+    channel_cols: list[str],
+    control_cols: list[str],
+) -> pd.DataFrame:
+    target_values = df[target_col].astype(float)
+    rows: list[dict[str, Any]] = []
+    for variable in [*channel_cols, *control_cols]:
+        series = df[variable].astype(float)
+        correlation = (
+            series.corr(target_values)
+            if series.nunique(dropna=True) >= 2 and target_values.nunique(dropna=True) >= 2
+            else None
+        )
+        rows.append(
+            {
+                "Variable": variable,
+                "Type": "Channel" if variable in channel_cols else "Control",
+                "Mean": round(float(series.mean()), 2),
+                "Median": round(float(series.median()), 2),
+                "Std dev": round(float(series.std(ddof=0)), 4),
+                "Min": round(float(series.min()), 2),
+                "Max": round(float(series.max()), 2),
+                "Zero rows (%)": round(float((series == 0).mean() * 100), 2),
+                "Negative rows (%)": round(float((series < 0).mean() * 100), 2),
+                "Corr to target": round(float(correlation), 3)
+                if correlation is not None and not pd.isna(correlation)
+                else None,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def build_overview_correlation_pairs(
+    df: pd.DataFrame,
+    columns: list[str],
+) -> pd.DataFrame:
+    if len(columns) < 2:
+        return pd.DataFrame(
+            columns=["Left variable", "Right variable", "Correlation", "Abs correlation"]
+        )
+    corr_matrix = df[columns].corr()
+    rows: list[dict[str, Any]] = []
+    for idx, left in enumerate(columns):
+        for right in columns[idx + 1 :]:
+            value = corr_matrix.loc[left, right]
+            if pd.isna(value):
+                continue
+            rows.append(
+                {
+                    "Left variable": left,
+                    "Right variable": right,
+                    "Correlation": round(float(value), 3),
+                    "Abs correlation": round(abs(float(value)), 3),
+                }
+            )
+    if not rows:
+        return pd.DataFrame(
+            columns=["Left variable", "Right variable", "Correlation", "Abs correlation"]
+        )
+    return pd.DataFrame(rows).sort_values(
+        "Abs correlation",
+        ascending=False,
+    ).reset_index(drop=True)
+
+
+def build_overview_vif_df(
+    df: pd.DataFrame,
+    columns: list[str],
+) -> pd.DataFrame:
+    if len(columns) < 2:
+        return pd.DataFrame(columns=["Variable", "VIF"])
+
+    matrix = df[columns].astype(float).to_numpy()
+    valid_rows = np.isfinite(matrix).all(axis=1)
+    matrix = matrix[valid_rows]
+    if matrix.shape[0] <= len(columns):
+        return pd.DataFrame(columns=["Variable", "VIF"])
+
+    rows: list[dict[str, Any]] = []
+    for idx, variable in enumerate(columns):
+        try:
+            vif_value = float(variance_inflation_factor(matrix, idx))
+        except Exception:
+            vif_value = float("inf")
+        rows.append(
+            {
+                "Variable": variable,
+                "VIF": round(vif_value, 3) if np.isfinite(vif_value) else None,
+            }
+        )
+    return pd.DataFrame(rows).sort_values(
+        "VIF",
+        ascending=False,
+        na_position="last",
+    ).reset_index(drop=True)
+
+
+def build_overview_target_timeseries(
+    *,
+    df: pd.DataFrame,
+    date_col: str,
+    target_col: str,
+    granularity: str,
+) -> pd.DataFrame:
+    chart_df = df[[date_col, target_col]].copy()
+    chart_df[date_col] = pd.to_datetime(chart_df[date_col])
+    if granularity == "Original":
+        return chart_df.set_index(date_col)
+
+    if granularity == "Weekly":
+        grouped = (
+            chart_df.assign(period=chart_df[date_col].dt.to_period("W").dt.start_time)
+            .groupby("period", as_index=False)[target_col]
+            .sum()
+            .rename(columns={"period": date_col})
+        )
+        return grouped.set_index(date_col)
+
+    if granularity == "Monthly":
+        grouped = (
+            chart_df.assign(period=chart_df[date_col].dt.to_period("M").dt.to_timestamp())
+            .groupby("period", as_index=False)[target_col]
+            .sum()
+            .rename(columns={"period": date_col})
+        )
+        return grouped.set_index(date_col)
+
+    return chart_df.set_index(date_col)
+
+
+def render_data_overview_tab() -> None:
+    if not st.session_state.get("valid") or st.session_state.get("df") is None:
+        st.warning("Load and validate data in the Data tab first.")
+        return
+
+    df = st.session_state["df"]
+    date_col = st.session_state["date_col"]
+    target_col = st.session_state["target_col"]
+    channel_cols = st.session_state.get("channel_cols", [])
+    control_cols = st.session_state.get("control_cols", [])
+    input_cols = [*channel_cols, *control_cols]
+    target_values = df[target_col].astype(float)
+    grain = infer_grain(df[date_col]) or "unknown"
+
+    st.caption(
+        "Use this step to inspect the validated dataset before choosing transforms or fitting models. Focus on coverage, target behavior, input quality, and overlap across selected inputs."
+    )
+    st.info(
+        "Recommended reading order: check the top metrics first, then target behavior, then input diagnostics, and finally the multicollinearity section."
+    )
+
+    row_count = len(df)
+    rows_per_parameter = row_count / max(1, 1 + len(input_cols))
+    zero_target_pct = float((target_values == 0).mean() * 100)
+
+    top_col1, top_col2, top_col3, top_col4 = st.columns(4)
+    top_col1.metric("Rows", f"{row_count:,}")
+    top_col2.metric("Date grain", grain.title())
+    top_col3.metric("Channels", str(len(channel_cols)))
+    top_col4.metric("Controls", str(len(control_cols)))
+
+    top_col5, top_col6, top_col7, top_col8 = st.columns(4)
+    top_col5.metric(
+        "Date range",
+        f"{df[date_col].min().date()} to {df[date_col].max().date()}",
+    )
+    top_col6.metric("Rows per parameter", f"{rows_per_parameter:.1f}")
+    top_col7.metric("Target total", f"{float(target_values.sum()):,.0f}")
+    top_col8.metric("Zero-target rows", f"{zero_target_pct:.1f}%")
+
+    st.subheader("Selected modeling scope")
+    st.markdown(
+        f"""
+        **Target**: `{target_col}`
+
+        **Channels**: {", ".join(f"`{name}`" for name in channel_cols) if channel_cols else "None"}
+
+        **Controls**: {", ".join(f"`{name}`" for name in control_cols) if control_cols else "None"}
+        """
+    )
+
+    st.subheader("Target behavior")
+    st.caption(
+        "This shows the validated target trend. Large spikes, long flat periods, or many zero rows can make model interpretation harder."
+    )
+    if grain == "daily":
+        time_granularity_options = ["Original", "Weekly", "Monthly"]
+    elif grain == "weekly":
+        time_granularity_options = ["Original", "Monthly"]
+    else:
+        time_granularity_options = ["Original", "Monthly"]
+    time_granularity = st.selectbox(
+        "Target time-series granularity",
+        options=time_granularity_options,
+        help="Choose how the target trend should be aggregated in the chart.",
+    )
+    target_chart_df = build_overview_target_timeseries(
+        df=df,
+        date_col=date_col,
+        target_col=target_col,
+        granularity=time_granularity,
+    )
+    st.line_chart(target_chart_df, height=280)
+    st.dataframe(build_overview_target_summary(target_values), width="stretch")
+
+    st.subheader("Input diagnostics")
+    st.caption(
+        "These are the validated raw selected inputs before adstock or saturation. Look for low variation, many zeros, negatives, and weak or unstable relationships to the target."
+    )
+    diagnostics_df = build_overview_input_diagnostics(
+        df=df,
+        target_col=target_col,
+        channel_cols=channel_cols,
+        control_cols=control_cols,
+    )
+    st.dataframe(diagnostics_df, width="stretch")
+
+    st.subheader("Multicollinearity checks")
+    st.caption(
+        "Multicollinearity means selected inputs move together so strongly that the model struggles to separate their individual effects. This often makes coefficients unstable."
+    )
+    if len(input_cols) < 2:
+        st.info("Select at least two channel or control variables to evaluate multicollinearity.")
+        return
+
+    corr_pairs_df = build_overview_correlation_pairs(df, input_cols)
+    corr_matrix_df = df[input_cols].corr().round(3)
+    vif_df = build_overview_vif_df(df, input_cols)
+
+    high_corr_pairs = corr_pairs_df.loc[
+        corr_pairs_df["Abs correlation"] >= 0.8
+    ]
+    if not high_corr_pairs.empty:
+        st.warning(
+            "Some selected inputs are highly correlated. Compare Ridge and ElasticNet more carefully before trusting channel-level rankings."
+        )
+
+    high_vif_variables = vif_df.loc[
+        vif_df["VIF"].fillna(0.0) >= 10.0,
+        "Variable",
+    ].tolist()
+    if high_vif_variables:
+        st.warning(
+            "These inputs have very high VIF values: "
+            + ", ".join(f"`{name}`" for name in high_vif_variables)
+            + ". Expect unstable coefficient separation unless regularization and validation support the story."
+        )
+
+    st.markdown("**Strongest input correlations**")
+    st.dataframe(corr_pairs_df, width="stretch")
+
+    st.markdown("**Correlation matrix**")
+    st.dataframe(corr_matrix_df, width="stretch")
+
+    st.markdown("**VIF by selected input**")
+    st.caption(
+        "VIF estimates how much a variable's variance is inflated because it overlaps with the other selected inputs. Rough guide: above 5 deserves caution, above 10 is a strong warning sign."
+    )
+    st.dataframe(vif_df, width="stretch")
 
 
 def render_config_tab() -> None:
@@ -1098,7 +1435,7 @@ def render_priors_tab() -> None:
             ("Control sigma scale", "0.5 to 2.0 common range", "Controls often need more flexibility because they can move in both directions."),
             ("Noise sigma scale", "0.5 to 1.5 typical", "Raise this when the target is noisy and lower it when the signal is clean."),
             ("Draws and tune", "300 to 1000 draws, 200 to 500 tune", "Use the lower end for speed and the higher end when you want more stable posterior summaries."),
-            ("Chains", "1 for speed, 2 to 4 for robustness", "More chains improve reliability but increase runtime."),
+            ("Chains", "2 to 4 for robustness", "Use at least 2 chains when you want a basic convergence check. More chains improve reliability but increase runtime."),
         ],
     )
     current_prior = st.session_state["pymc_prior_config"]
@@ -1242,142 +1579,10 @@ def render_priors_tab() -> None:
         st.session_state["pymc_sampler_config"] = sampler_config
         st.session_state["pymc_prior_signature"] = new_signature
 
-        if old_signature and old_signature != new_signature and "PyMC" in st.session_state["model_results"]:
-            st.session_state["model_results"].pop("PyMC", None)
-            st.session_state["model_results_meta"].pop("PyMC", None)
-            if st.session_state.get("selected_model") == "PyMC":
-                st.session_state["selected_model"] = next(
-                    iter(st.session_state["model_results"].keys()),
-                    None,
-                )
-            st.session_state["ai_summary"] = None
+        if old_signature and old_signature != new_signature and remove_model_outputs(["PyMC"]):
             st.warning("PyMC priors changed. The previous PyMC result was cleared.")
 
         st.success("PyMC priors saved")
-
-
-def render_info_tab() -> None:
-    st.caption(
-        "Use this step as a guide to what the MMM workflow is doing, how the models differ, and how to interpret the outputs before making decisions."
-    )
-    render_definitions_expander(
-        "Definitions for this step",
-        [
-            ("Adstock", "Carryover from previous periods. It reflects how a channel can keep influencing leads after the initial spend."),
-            ("Saturation", "Diminishing returns as spend rises. It helps explain why doubling spend does not double response."),
-            ("Regularization", "A penalty that shrinks unstable coefficients when channels are correlated."),
-            ("CPL", "Cost per lead. Lower means the channel is generating leads more efficiently."),
-            ("Contribution", "The portion of modeled leads assigned to a channel in the selected view."),
-            ("Baseline", "The non-media part of the model, including intercept and control effects."),
-        ],
-    )
-
-    st.subheader("When to use each model")
-    model_rows = [
-        {
-            "Model": "OLS",
-            "What it does": "Fits a simple linear relationship on the transformed inputs.",
-            "Best use case": "Fast baseline and first-pass sanity check.",
-            "Strength": "Easy to explain and quick to run.",
-            "Watch out for": "Less stable when channels are highly correlated.",
-        },
-        {
-            "Model": "Ridge",
-            "What it does": "Adds L2 regularization to stabilize channel effects.",
-            "Best use case": "Default choice when multiple channels move together.",
-            "Strength": "Usually more stable than OLS in real media mixes.",
-            "Watch out for": "Still linear and still in-sample in this app.",
-        },
-        {
-            "Model": "Lasso",
-            "What it does": "Adds L1 regularization that can shrink weak effects heavily.",
-            "Best use case": "Exploring a leaner model when many channels may be weak.",
-            "Strength": "Can simplify noisy channel sets.",
-            "Watch out for": "May zero channels too aggressively when signal is weak.",
-        },
-        {
-            "Model": "ElasticNet",
-            "What it does": "Combines Ridge and Lasso penalties.",
-            "Best use case": "Middle ground between stability and simplification.",
-            "Strength": "Useful when you want both shrinkage and some variable selection.",
-            "Watch out for": "Needs more tuning than OLS or Ridge.",
-        },
-        {
-            "Model": "PyMC",
-            "What it does": "Fits a Bayesian regression on the transformed inputs and returns uncertainty ranges.",
-            "Best use case": "When you want intervals and explicit prior assumptions.",
-            "Strength": "Shows coefficient and CPL uncertainty, not only point estimates.",
-            "Watch out for": "Slower and more sensitive to prior choices.",
-        },
-    ]
-    st.dataframe(pd.DataFrame(model_rows), width="stretch")
-
-    st.subheader("How to choose transforms")
-    transform_rows = [
-        {
-            "Setting": "Geometric adstock",
-            "Use it when": "A channel should keep some carryover after the spend happens.",
-            "Interpretation": "Higher theta means a longer lingering effect.",
-        },
-        {
-            "Setting": "No adstock",
-            "Use it when": "A channel is expected to influence leads mostly in the same period.",
-            "Interpretation": "No carryover is assumed.",
-        },
-        {
-            "Setting": "Log saturation",
-            "Use it when": "You want a simple diminishing-returns shape with few assumptions.",
-            "Interpretation": "Response keeps rising but at a slower and slower rate.",
-        },
-        {
-            "Setting": "Hill saturation",
-            "Use it when": "You want more control over the bend and the half-saturation point.",
-            "Interpretation": "Alpha changes steepness and K controls where the curve starts flattening.",
-        },
-        {
-            "Setting": "No saturation",
-            "Use it when": "You want to test a linear transformed relationship without diminishing returns.",
-            "Interpretation": "Spend response does not flatten in the transform itself.",
-        },
-    ]
-    st.dataframe(pd.DataFrame(transform_rows), width="stretch")
-
-    st.subheader("How to read the outputs")
-    reading_rows = [
-        {
-            "Output": "Model comparison",
-            "How to use it": "Compare fit quality across models, but remember these metrics are in-sample.",
-        },
-        {
-            "Output": "Actual vs predicted",
-            "How to use it": "Check whether the model broadly tracks the observed lead pattern over time.",
-        },
-        {
-            "Output": "Media leads vs baseline vs unexplained",
-            "How to use it": "Use this as a business-facing split of where the selected period's leads appear to come from.",
-        },
-        {
-            "Output": "Spend share vs contribution share",
-            "How to use it": "Look for channels contributing more than their spend share and channels lagging behind their budget weight.",
-        },
-        {
-            "Output": "CPL by channel",
-            "How to use it": "Lower CPL means more efficient lead generation in the current selected view.",
-        },
-        {
-            "Output": "Saturation curves and status",
-            "How to use it": "Use these to judge whether a channel still has likely headroom or is closer to diminishing returns.",
-        },
-        {
-            "Output": "AI analysis",
-            "How to use it": "Use it as a decision-support draft, not as a replacement for model review.",
-        },
-    ]
-    st.dataframe(pd.DataFrame(reading_rows), width="stretch")
-
-    st.info(
-        "Best practice in this app: start with OLS and Ridge, compare the story, then use PyMC when you want uncertainty ranges and explicit prior assumptions."
-    )
 
 
 def render_fit_tab() -> None:
@@ -1448,19 +1653,29 @@ def render_fit_tab() -> None:
                     kwargs["sampler_config"] = st.session_state["pymc_sampler_config"]
                     st.info("PyMC can take longer than OLS and Ridge.")
                 result = model.fit(X, y, raw_spend=raw_spend, **kwargs)
-                holdout_meta = compute_holdout_diagnostics(
-                    builder=builder,
-                    X=X,
-                    y=y,
-                    raw_spend=raw_spend,
-                    model_kwargs=kwargs,
-                    date_values=date_values,
+                try:
+                    holdout_meta = compute_holdout_diagnostics(
+                        builder=builder,
+                        X=X,
+                        y=y,
+                        raw_spend=raw_spend,
+                        model_kwargs=kwargs,
+                        date_values=date_values,
+                    )
+                except Exception as exc:
+                    holdout_meta = None
+                    st.warning(f"{model_name} holdout validation could not be computed: {exc}")
+                bayesian_diagnostics = (
+                    model.get_diagnostics()
+                    if hasattr(model, "get_diagnostics")
+                    else None
                 )
                 result.model_name = model_name
                 st.session_state["model_results"][model_name] = result
                 st.session_state["model_results_meta"][model_name] = {
                     "fitted_at": datetime.now().isoformat(timespec="seconds"),
                     "holdout": holdout_meta,
+                    "bayesian_diagnostics": bayesian_diagnostics,
                 }
                 st.success(f"{model_name}: R² = {result.r_squared:.2f}, RMSE = {result.rmse:,.0f}")
             except Exception as exc:
@@ -1496,6 +1711,57 @@ def build_model_comparison_df() -> pd.DataFrame:
             row["MAPE holdout coverage"] = holdout_meta["holdout_coverage"]
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def build_recommendation_lines(
+    *,
+    best_name: str | None,
+    best_value: float | None,
+    worst_name: str | None,
+    worst_value: float | None,
+    reallocation_pct: int,
+    holdout_meta: dict[str, Any] | None,
+    unexplained_share: float,
+    negative_signal_channels: list[str],
+    selected_period: str,
+    visible_channels: list[str],
+) -> list[str]:
+    caution_reasons: list[str] = []
+    if holdout_meta is None:
+        caution_reasons.append("No holdout validation is available yet.")
+    else:
+        holdout_r_squared = float(holdout_meta.get("holdout_r_squared", 0.0))
+        holdout_mape = holdout_meta.get("holdout_mape")
+        if holdout_r_squared < 0.2:
+            caution_reasons.append(f"Holdout R² is only {holdout_r_squared:.2f}.")
+        if holdout_mape is not None and float(holdout_mape) > 30.0:
+            caution_reasons.append(f"Holdout MAPE is {float(holdout_mape):.1f}%.")
+    if unexplained_share > 20.0:
+        caution_reasons.append(f"Unexplained share is {unexplained_share:.1f}%.")
+    if negative_signal_channels:
+        caution_reasons.append(
+            "Negative fitted media signals are present for "
+            + ", ".join(negative_signal_channels)
+            + "."
+        )
+    if selected_period != "All data":
+        caution_reasons.append(
+            f"The current recommendation is based on the filtered period view `{selected_period}`."
+        )
+
+    if caution_reasons:
+        return [
+            "- Treat the current recommendation as directional only.",
+            "- Validate the result before reallocating budget, ideally with a controlled test or a rerun after improving the model.",
+            *[f"- Reason: {reason}" for reason in caution_reasons],
+        ]
+
+    return [
+        f"- Invest more in {best_name or 'the best channel'} — currently {format_cpl(best_value)}",
+        f"- Reduce spend on {worst_name or 'the weakest channel'} — {format_cpl(worst_value)}",
+        f"- Reallocate {reallocation_pct}% from {worst_name or 'the weakest channel'} to {best_name or 'the strongest channel'} — directional heuristic based on current modeled CPL",
+        f"- This view is based on {len(visible_channels)} selected channel(s); re-check the recommendation if you change the filter.",
+    ]
 
 
 def render_results_tab() -> None:
@@ -1560,7 +1826,6 @@ def render_results_tab() -> None:
         actual_values,
         row_mask=period_mask,
     )
-    media_total = sum(display_channel_totals.values())
     unexplained_share = (
         (unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
     )
@@ -1581,12 +1846,25 @@ def render_results_tab() -> None:
         for channel in visible_channels
     }
     visible_media_total = sum(visible_channel_totals.values())
+    hidden_media_total = sum(
+        float(value)
+        for channel, value in display_channel_totals.items()
+        if channel not in visible_channels
+    )
+    filtered_unexplained_total = hidden_media_total + unexplained_total
+    filtered_unexplained_share = (
+        (filtered_unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
+    )
     visible_spend_totals, visible_cpl_map = compute_view_channel_metrics(
         st.session_state["df"],
         visible_channels,
         period_mask,
         visible_channel_totals,
     )
+    negative_signal_channels = [
+        channel for channel in visible_channels
+        if float(result.coefficients.get(channel, 0.0)) < 0.0
+    ]
     show_baseline = st.checkbox(
         "Show baseline and unexplained portion",
         value=bool(st.session_state.get("show_baseline_visual", True)),
@@ -1650,9 +1928,9 @@ def render_results_tab() -> None:
     )
     col4.metric(
         "Unexplained gap",
-        format_signed_number(unexplained_total),
-        f"{unexplained_share:.1f}%",
-        help="Remaining portion of actual leads that is not explained by the displayed media and baseline split.",
+        format_signed_number(filtered_unexplained_total),
+        f"{filtered_unexplained_share:.1f}%",
+        help="Remaining portion of actual leads not explained by the current visible media view and baseline. If some channels are hidden, this gap includes those hidden media contributions too.",
     )
     col5, col6 = st.columns(2)
     col5.metric(
@@ -1675,7 +1953,7 @@ def render_results_tab() -> None:
         summary_rows.append(
             {
                 "Segment": "Unexplained gap",
-                "Value": abs(unexplained_total),
+                "Value": abs(filtered_unexplained_total),
                 "SegmentOrder": 3,
             }
         )
@@ -1791,8 +2069,74 @@ def render_results_tab() -> None:
         )
         st.altair_chart(residual_chart)
 
+    bayesian_diagnostics = st.session_state["model_results_meta"].get(selected_model, {}).get(
+        "bayesian_diagnostics"
+    )
+    if selected_model == "PyMC" and isinstance(bayesian_diagnostics, dict):
+        st.subheader("Bayesian diagnostics")
+        st.caption(
+            "Use this section to judge whether the PyMC sampler was stable enough to trust the Bayesian interval story."
+        )
+        diag_col1, diag_col2, diag_col3, diag_col4 = st.columns(4)
+        diag_col1.metric("Chains", str(bayesian_diagnostics.get("chains", "N/A")))
+        diag_col2.metric("Divergences", str(bayesian_diagnostics.get("divergences", "N/A")))
+        diag_col3.metric(
+            "Max r_hat",
+            f"{float(bayesian_diagnostics['max_rhat']):.3f}"
+            if bayesian_diagnostics.get("max_rhat") is not None
+            else "N/A",
+        )
+        diag_col4.metric(
+            "Min ESS bulk",
+            f"{float(bayesian_diagnostics['min_ess_bulk']):.0f}"
+            if bayesian_diagnostics.get("min_ess_bulk") is not None
+            else "N/A",
+        )
+
+        diagnostic_status = str(bayesian_diagnostics.get("status", "unknown"))
+        if diagnostic_status == "healthy":
+            st.success(
+                "PyMC diagnostics look acceptable for this app. Interval outputs are still directional, but the sampler did not raise the main warning signs."
+            )
+        elif diagnostic_status == "insufficient_chains":
+            st.warning(
+                "Only one chain was available, so convergence checks are too weak for a strong interval claim. Treat the PyMC uncertainty outputs as directional."
+            )
+        elif diagnostic_status == "sampler_warnings":
+            st.warning(
+                "The sampler reported divergences or tree-depth issues. Treat the PyMC uncertainty outputs as low confidence until the model is rerun with a more stable setup."
+            )
+        else:
+            st.warning(
+                "The sampler showed weak convergence diagnostics. Treat the PyMC interval outputs as low confidence until the model is rerun with a more stable setup."
+            )
+
+        st.markdown(
+            """
+            **How to read these diagnostics**
+
+            - `Divergences` mean the sampler had trouble exploring the posterior cleanly
+            - `r_hat` should be very close to `1.00`; values above about `1.01` are a warning sign
+            - `ESS` means effective sample size; higher is better because the sampler produced more useful independent information
+            """
+        )
+        flagged_parameters = bayesian_diagnostics.get("flagged_parameters") or []
+        if flagged_parameters:
+            st.markdown("**Parameters with warnings**")
+            st.dataframe(pd.DataFrame(flagged_parameters), width="stretch")
+
     st.subheader("Why is it happening?")
     st.caption("Use this section to explain channel efficiency. Focus on CPL, contribution, and how much each channel accounts for in the selected model.")
+    if negative_signal_channels:
+        st.warning(
+            "Some selected channels have negative fitted coefficients: "
+            + ", ".join(negative_signal_channels)
+            + ". Treat their efficiency story with extra caution."
+        )
+    if hidden_media_total > 0:
+        st.info(
+            f"The current chart filter hides {format_number(hidden_media_total)} media-attributed leads. That hidden portion is folded into the displayed gap so the filtered view still adds up cleanly."
+        )
     why_rows: list[dict[str, Any]] = []
     for channel in st.session_state["selected_visual_channels"]:
         contribution_total = float(visible_channel_totals.get(channel, 0.0))
@@ -1882,12 +2226,18 @@ def render_results_tab() -> None:
     if best_value and worst_value and worst_value > 0:
         reallocation_pct = min(50, round((worst_value - best_value) / worst_value * 100))
 
-    recommendation_lines = [
-        f"- Invest more in {best_name or 'the best channel'} — currently {format_cpl(best_value)}",
-        f"- Reduce spend on {worst_name or 'the weakest channel'} — {format_cpl(worst_value)}",
-        f"- Reallocate {reallocation_pct}% from {worst_name or 'the weakest channel'} to {best_name or 'the strongest channel'} — directional heuristic based on current modeled CPL",
-        "- This is a directional recommendation, not a forecast",
-    ]
+    recommendation_lines = build_recommendation_lines(
+        best_name=best_name,
+        best_value=best_value,
+        worst_name=worst_name,
+        worst_value=worst_value,
+        reallocation_pct=reallocation_pct,
+        holdout_meta=holdout_meta,
+        unexplained_share=filtered_unexplained_share,
+        negative_signal_channels=negative_signal_channels,
+        selected_period=selected_period,
+        visible_channels=visible_channels,
+    )
     st.markdown("\n".join(recommendation_lines))
 
     with st.expander("Channel Insights", expanded=False):
@@ -1913,23 +2263,24 @@ def render_results_tab() -> None:
         highlighted_channels = ordered_channels[:top_n_channels]
         other_channels = ordered_channels[top_n_channels:]
 
+        channel_vectors, baseline_vector, unexplained_vector = compute_display_attribution_vectors(
+            result,
+            st.session_state["y"],
+            row_mask=period_mask,
+        )
         insight_series = {
-            channel: result.contribution[channel][period_mask]
+            channel: channel_vectors[channel]
             for channel in highlighted_channels
         }
         if other_channels:
             insight_series["other"] = np.sum(
-                [result.contribution[channel][period_mask] for channel in other_channels],
+                [channel_vectors[channel] for channel in other_channels],
                 axis=0,
             )
         insight_df = pd.DataFrame(insight_series)
         if show_baseline:
-            insight_df["baseline"] = result.baseline[period_mask]
-            insight_df["unexplained_gap"] = np.clip(
-                st.session_state["y"][period_mask] - result.y_pred[period_mask],
-                a_min=0,
-                a_max=None,
-            )
+            insight_df["baseline"] = baseline_vector
+            insight_df["unexplained_gap"] = unexplained_vector
         insight_df.insert(0, "date", date_series[period_mask].to_numpy())
         insight_long_df = insight_df.melt(
             id_vars=["date"],
@@ -2023,9 +2374,9 @@ def render_results_tab() -> None:
             {"Metric": "Model", "Value": selected_model},
             {"Metric": "Period", "Value": selected_period},
             {"Metric": "Total leads", "Value": round(actual_total, 2)},
-            {"Metric": "Media leads", "Value": round(media_total, 2)},
+            {"Metric": "Media leads", "Value": round(visible_media_total, 2)},
             {"Metric": "Baseline leads", "Value": round(baseline_total, 2)},
-            {"Metric": "Unexplained gap", "Value": round(unexplained_total, 2)},
+            {"Metric": "Unexplained gap", "Value": round(filtered_unexplained_total, 2)},
             {"Metric": "R_squared", "Value": round(float(result.r_squared), 4)},
             {"Metric": "RMSE", "Value": round(float(result.rmse), 2)},
         ]
@@ -2158,6 +2509,15 @@ def render_ai_tab() -> None:
         for channel in selected_visual_channels
     }
     media_total = sum(visible_channel_totals.values())
+    hidden_media_total = sum(
+        float(value)
+        for channel, value in display_channel_totals.items()
+        if channel not in selected_visual_channels
+    )
+    filtered_unexplained_total = hidden_media_total + unexplained_total
+    filtered_unexplained_share = (
+        (filtered_unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
+    )
     _, visible_cpl_map = compute_view_channel_metrics(
         st.session_state["df"],
         list(selected_visual_channels),
@@ -2166,6 +2526,14 @@ def render_ai_tab() -> None:
     )
     best_name, best_value = pick_best_channel(visible_cpl_map)
     worst_name, worst_value = pick_worst_channel(visible_cpl_map)
+    negative_signal_channels = [
+        channel for channel in selected_visual_channels
+        if float(result.coefficients.get(channel, 0.0)) < 0.0
+    ]
+    holdout_meta = st.session_state["model_results_meta"].get(selected_model, {}).get("holdout")
+    unexplained_share = (
+        (unexplained_total / actual_total) * 100 if not math.isclose(actual_total, 0.0) else 0.0
+    )
     reallocation_pct = 0
     if best_value and worst_value and worst_value > 0:
         reallocation_pct = min(50, round((worst_value - best_value) / worst_value * 100))
@@ -2219,39 +2587,69 @@ def render_ai_tab() -> None:
         if not api_key or not model:
             st.error("Add a valid .env or credentials.json file, or set an API key in the sidebar to enable AI analysis.")
         else:
-            payload = build_payload(
-                result,
-                st.session_state,
-                include_comparison=include_all_models,
-            )
-            summary = get_summary(
-                payload,
-                provider,
-                api_key,
-                model,
-                detailed=analysis_mode == "In-depth",
-            )
-            st.session_state["ai_summary"] = summary
-            st.session_state["ai_summary_meta"] = {
-                "selected_model": selected_model,
-                "results_period": selected_period,
-                "selected_visual_channels": list(selected_visual_channels),
-                "analysis_mode": analysis_mode,
-                "include_all_models": include_all_models,
-                "provider": provider,
-                "generated_at": datetime.now().isoformat(timespec="seconds"),
-            }
+            try:
+                payload = build_payload(
+                    result,
+                    st.session_state,
+                    include_comparison=include_all_models,
+                )
+                summary = get_summary(
+                    payload,
+                    provider,
+                    api_key,
+                    model,
+                    detailed=analysis_mode == "In-depth",
+                )
+            except Exception as exc:
+                st.session_state["ai_summary"] = None
+                st.session_state["ai_summary_meta"] = None
+                st.error(f"AI summary failed: {exc}")
+            else:
+                st.session_state["ai_summary"] = summary
+                st.session_state["ai_summary_meta"] = {
+                    "selected_model": selected_model,
+                    "results_period": selected_period,
+                    "selected_visual_channels": list(selected_visual_channels),
+                    "analysis_mode": analysis_mode,
+                    "include_all_models": include_all_models,
+                    "provider": provider,
+                    "resolved_model": model,
+                    "source_file": loaded_source,
+                    "generated_at": datetime.now().isoformat(timespec="seconds"),
+                }
 
     if st.session_state.get("ai_summary"):
         ai_summary_meta = st.session_state.get("ai_summary_meta") or {}
+        required_ai_meta_keys = {
+            "selected_model",
+            "results_period",
+            "selected_visual_channels",
+            "analysis_mode",
+            "include_all_models",
+            "provider",
+            "resolved_model",
+            "source_file",
+        }
         generated_for_model = ai_summary_meta.get("selected_model")
         generated_for_period = ai_summary_meta.get("results_period")
         generated_for_channels = ai_summary_meta.get("selected_visual_channels") or []
+        generated_for_provider = ai_summary_meta.get("provider")
+        generated_for_depth = ai_summary_meta.get("analysis_mode")
+        generated_for_comparison_mode = ai_summary_meta.get("include_all_models")
+        generated_for_source = ai_summary_meta.get("source_file")
+        generated_for_resolved_model = ai_summary_meta.get("resolved_model")
         current_channels_signature = list(selected_visual_channels)
+        has_complete_ai_meta = all(key in ai_summary_meta for key in required_ai_meta_keys)
         ai_is_stale = (
-            generated_for_model not in {None, selected_model}
-            or generated_for_period not in {None, selected_period}
+            not has_complete_ai_meta
+            or generated_for_model != selected_model
+            or generated_for_period != selected_period
             or generated_for_channels != current_channels_signature
+            or generated_for_provider != provider
+            or generated_for_resolved_model != model
+            or generated_for_depth != analysis_mode
+            or generated_for_comparison_mode != include_all_models
+            or generated_for_source != loaded_source
         )
         if generated_for_model or generated_for_period:
             st.caption(
@@ -2268,8 +2666,8 @@ def render_ai_tab() -> None:
                     {
                         "generated_at": (ai_summary_meta.get("generated_at") or datetime.now().isoformat(timespec="seconds")),
                         "provider": ai_summary_meta.get("provider", provider),
-                        "model": model,
-                    "source_file": loaded_source,
+                        "model": ai_summary_meta.get("resolved_model", model),
+                        "source_file": ai_summary_meta.get("source_file", loaded_source),
                         "selected_model": generated_for_model or selected_model,
                         "results_period": generated_for_period or selected_period,
                         "analysis": st.session_state["ai_summary"],
@@ -2298,13 +2696,13 @@ def render_ai_tab() -> None:
 
             overview_export_df = pd.DataFrame(
                 [
-                {"Metric": "Source file", "Value": loaded_source},
+                    {"Metric": "Source file", "Value": ai_summary_meta.get("source_file", loaded_source)},
                     {"Metric": "Model", "Value": selected_model},
                     {"Metric": "Period", "Value": selected_period},
                     {"Metric": "Total leads", "Value": round(actual_total, 2)},
                     {"Metric": "Media leads", "Value": round(media_total, 2)},
                     {"Metric": "Baseline leads", "Value": round(baseline_total, 2)},
-                    {"Metric": "Unexplained gap", "Value": round(unexplained_total, 2)},
+                    {"Metric": "Unexplained gap", "Value": round(filtered_unexplained_total, 2)},
                     {"Metric": "R_squared", "Value": round(float(result.r_squared), 4)},
                     {"Metric": "RMSE", "Value": round(float(result.rmse), 2)},
                 ]
@@ -2327,16 +2725,22 @@ def render_ai_tab() -> None:
                     }
                 )
             channel_export_df = pd.DataFrame(channel_export_rows)
-            recommendation_lines = [
-                f"Invest more in {best_name or 'the best channel'} currently {format_cpl(best_value)}",
-                f"Reduce spend on {worst_name or 'the weakest channel'} {format_cpl(worst_value)}",
-                f"Reallocate {reallocation_pct}% from {worst_name or 'the weakest channel'} to {best_name or 'the strongest channel'} as a directional heuristic",
-                "This is a directional recommendation, not a forecast",
-            ]
+            recommendation_lines = build_recommendation_lines(
+                best_name=best_name,
+                best_value=best_value,
+                worst_name=worst_name,
+                worst_value=worst_value,
+                reallocation_pct=reallocation_pct,
+                holdout_meta=holdout_meta,
+                unexplained_share=filtered_unexplained_share,
+                negative_signal_channels=negative_signal_channels,
+                selected_period=selected_period,
+                visible_channels=list(selected_visual_channels),
+            )
             complete_overview_df = build_complete_overview_export_df(
                 selected_model=selected_model,
                 selected_period=selected_period,
-            source_name=loaded_source,
+                source_name=ai_summary_meta.get("source_file", loaded_source),
                 overview_df=overview_export_df,
                 comparison_df=comparison_export_df,
                 channel_df=channel_export_df,
@@ -2346,7 +2750,7 @@ def render_ai_tab() -> None:
             complete_overview_pdf = build_complete_overview_pdf_bytes(
                 selected_model=selected_model,
                 selected_period=selected_period,
-            source_name=loaded_source,
+                source_name=ai_summary_meta.get("source_file", loaded_source),
                 overview_df=overview_export_df,
                 comparison_df=comparison_export_df,
                 channel_df=channel_export_df,
@@ -2381,19 +2785,31 @@ def main() -> None:
     st.title("Marketing Mix Modeling")
     st.caption("Use the sidebar step menu to move from data preparation to model results and final analysis.")
     init_state()
+    session_notice = st.session_state.get("session_notice")
+    if isinstance(session_notice, dict):
+        notice_level = session_notice.get("level", "info")
+        notice_text = str(session_notice.get("text", ""))
+        if notice_text:
+            getattr(st, notice_level, st.info)(notice_text)
+        st.session_state["session_notice"] = None
     st.sidebar.header("MMM workflow")
+    selected_step = render_sidebar_step_menu()
+    render_session_controls()
+    render_info_sidebar_section()
+    st.sidebar.divider()
     st.sidebar.text_input(
         "API key override",
         type="password",
         key="manual_ai_api_key",
         help="Optional manual API key entry used when credentials are not available from file or environment.",
     )
-    selected_step = render_sidebar_step_menu()
-    st.subheader(selected_step)
+    st.subheader("Guide" if selected_step == "Info" else selected_step)
     st.caption(STEP_DESCRIPTIONS[selected_step])
 
     if selected_step == "Data":
         render_data_tab()
+    elif selected_step == "Overview":
+        render_data_overview_tab()
     elif selected_step == "Config":
         render_config_tab()
     elif selected_step == "Priors":

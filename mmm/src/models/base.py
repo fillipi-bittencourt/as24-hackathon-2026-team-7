@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 
 
 @dataclass
@@ -23,6 +25,26 @@ class ModelResult:
     coefficient_upper: dict[str, float] | None = None
     cpl_lower: dict[str, float] | None = None
     cpl_upper: dict[str, float] | None = None
+
+
+def fit_standardized_linear_model(
+    model: Any,
+    X: np.ndarray,
+    y: np.ndarray,
+) -> tuple[np.ndarray, float, np.ndarray, StandardScaler]:
+    X_values = np.asarray(X, dtype=np.float64)
+    y_values = np.asarray(y, dtype=np.float64)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_values)
+    model.fit(X_scaled, y_values)
+    y_pred = np.asarray(model.predict(X_scaled), dtype=np.float64)
+
+    scale = np.where(np.isclose(scaler.scale_, 0.0), 1.0, scaler.scale_)
+    coefficients = np.asarray(model.coef_, dtype=np.float64) / scale
+    intercept = float(model.intercept_) - float(
+        np.sum(np.asarray(model.coef_, dtype=np.float64) * scaler.mean_ / scale)
+    )
+    return coefficients.astype(np.float64), float(intercept), y_pred, scaler
 
 
 def build_non_negative_media_prediction(

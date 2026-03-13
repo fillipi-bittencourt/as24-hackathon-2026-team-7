@@ -7,7 +7,11 @@ import pandas as pd
 import streamlit as st
 
 from src.ai.client import load_credentials
-from src.app_state import compute_signature
+from src.app_state import (
+    clear_transformed_inputs,
+    compute_signature,
+    remove_model_outputs,
+)
 from src.results_helpers import infer_grain
 
 
@@ -125,7 +129,13 @@ def apply_ai_column_recommendations(selection_recommendations: dict[str, Any]) -
     converted = pd.DataFrame(raw_df).copy()
     from src.utils import convert_mmm_data, validate_mmm_data
 
-    converted = convert_mmm_data(converted, date_col, target_col, channel_cols, control_cols)
+    converted, _ = convert_mmm_data(
+        converted,
+        date_col,
+        target_col,
+        channel_cols,
+        control_cols,
+    )
     ok, errors, warnings = validate_mmm_data(
         converted,
         date_col,
@@ -143,14 +153,7 @@ def apply_ai_column_recommendations(selection_recommendations: dict[str, Any]) -
     st.session_state["channel_cols"] = channel_cols
     st.session_state["control_cols"] = control_cols
     st.session_state["valid"] = True
-    st.session_state["transforms_applied"] = False
-    st.session_state["transform_fingerprint"] = None
-    st.session_state["X_transformed"] = None
-    st.session_state["y"] = None
-    st.session_state["model_results"] = {}
-    st.session_state["model_results_meta"] = {}
-    st.session_state["selected_model"] = None
-    st.session_state["ai_summary"] = None
+    clear_transformed_inputs()
     return True, warnings
 
 
@@ -220,15 +223,8 @@ def apply_ai_prior_recommendations(prior_recommendations: dict[str, Any]) -> Non
     st.session_state["pymc_prior_signature"] = new_signature
     st.session_state["pymc_prior_reasoning"] = channel_reasoning
 
-    if old_signature and old_signature != new_signature and "PyMC" in st.session_state["model_results"]:
-        st.session_state["model_results"].pop("PyMC", None)
-        st.session_state["model_results_meta"].pop("PyMC", None)
-        if st.session_state.get("selected_model") == "PyMC":
-            st.session_state["selected_model"] = next(
-                iter(st.session_state["model_results"].keys()),
-                None,
-            )
-        st.session_state["ai_summary"] = None
+    if old_signature and old_signature != new_signature:
+        remove_model_outputs(["PyMC"])
 
 
 def apply_ai_transform_recommendations() -> None:
@@ -308,11 +304,4 @@ def apply_ai_transform_recommendations() -> None:
             float(regularization.get("l1_ratio", st.session_state.get("l1_ratio", 0.5)) or 0.5),
         ),
     )
-    st.session_state["transforms_applied"] = False
-    st.session_state["transform_fingerprint"] = None
-    st.session_state["X_transformed"] = None
-    st.session_state["y"] = None
-    st.session_state["model_results"] = {}
-    st.session_state["model_results_meta"] = {}
-    st.session_state["selected_model"] = None
-    st.session_state["ai_summary"] = None
+    clear_transformed_inputs()

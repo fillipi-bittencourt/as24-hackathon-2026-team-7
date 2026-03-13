@@ -1,0 +1,28 @@
+---
+description: Prefer smaller modules and maintainable structure
+alwaysApply: true
+---
+
+# Code Structure And Maintainability
+
+- Prefer decomposing code into smaller files and focused helpers whenever it clearly improves readability, reuse, or safety
+- Do not keep growing a large file when a new section can live cleanly in a helper module
+- Extract one concern per module when practical such as state helpers, visual helpers, AI helpers, export helpers, or statistical utilities
+- Prefer pure functions for calculations and formatting helpers instead of mixing computation with UI state changes
+- Centralize repeated state-reset or invalidation logic instead of copying similar blocks across files
+- When refactoring, preserve existing behavior, widget keys, and user-facing flows unless the task explicitly asks for behavior changes
+- Prefer small cohesive refactors over broad rewrites
+- Add or keep brief comments only where the code would otherwise be hard to follow
+
+Examples
+
+```python
+# bad
+# giant app file mixes chart math, exports, state resets, and guide copy
+
+# good
+# app.py routes the workflow
+# results_helpers.py handles chart math
+# app_state.py handles reset helpers
+# ui_content.py holds static guide content
+```

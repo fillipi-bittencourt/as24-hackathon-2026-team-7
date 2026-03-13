@@ -31,6 +31,7 @@ data/*.csv
 data/*.parquet
 data/*.xlsx
 !data/mmm_demo_sample.csv
+saved_states/*.json
 
 # macOS
 .DS_Store

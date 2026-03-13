@@ -367,9 +367,19 @@ def build_period_mask(
     ordered_dates = pd.to_datetime(date_series).reset_index(drop=True)
     if ordered_dates.empty:
         return np.ones(len(date_series), dtype=bool)
+    grain = infer_grain(ordered_dates)
     max_date = ordered_dates.max()
-    threshold_date = max_date - pd.Timedelta(weeks=window_size)
-    return (ordered_dates >= threshold_date).to_numpy(dtype=bool)
+    if grain == "weekly":
+        threshold_date = max_date - pd.Timedelta(weeks=max(window_size - 1, 0))
+        return (ordered_dates >= threshold_date).to_numpy(dtype=bool)
+    if grain == "daily":
+        threshold_date = max_date - pd.Timedelta(days=max((window_size * 7) - 1, 0))
+        return (ordered_dates >= threshold_date).to_numpy(dtype=bool)
+
+    keep_count = min(window_size, len(ordered_dates))
+    row_mask = np.zeros(len(ordered_dates), dtype=bool)
+    row_mask[-keep_count:] = True
+    return row_mask
 
 
 def compute_mape_non_zero(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[float | None, str]:

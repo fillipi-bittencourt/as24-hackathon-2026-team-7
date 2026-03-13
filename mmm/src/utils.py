@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import re
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -35,13 +36,25 @@ def normalize_column_names(
     return renamed, rename_map
 
 
+def compute_dataframe_signature(df: pd.DataFrame) -> str:
+    row_hashes = pd.util.hash_pandas_object(df, index=True).to_numpy(dtype=np.uint64)
+    payload = "|".join(
+        [
+            str(df.shape),
+            ",".join(map(str, df.columns)),
+            ",".join(map(str, row_hashes.tolist())),
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def convert_mmm_data(
     df: pd.DataFrame,
     date_col: str,
     target_col: str,
     channel_cols: list[str],
     control_cols: list[str] | None,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, int]:
     converted = df.copy()
     controls = control_cols or []
 
@@ -55,7 +68,51 @@ def convert_mmm_data(
                 np.float64
             )
 
-    return converted
+    aggregated_duplicate_rows = 0
+    if date_col in converted.columns:
+        valid_date_rows = converted[date_col].notna()
+        valid_dates = converted.loc[valid_date_rows, date_col]
+        if valid_dates.duplicated().any():
+            invalid_rows = converted.loc[~valid_date_rows].copy()
+            aggregated_valid_rows = _aggregate_rows_by_date(
+                converted.loc[valid_date_rows].copy(),
+                date_col,
+            )
+            aggregated_duplicate_rows = (
+                int(valid_date_rows.sum()) - len(aggregated_valid_rows)
+            )
+            converted = pd.concat(
+                [aggregated_valid_rows, invalid_rows],
+                ignore_index=True,
+            )
+
+    return converted, aggregated_duplicate_rows
+
+
+def _aggregate_rows_by_date(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
+    ordered_columns = list(df.columns)
+    grouped = (
+        df.groupby(date_col, dropna=False, sort=False)
+        .agg(
+            {
+                column: _aggregate_column
+                for column in ordered_columns
+                if column != date_col
+            }
+        )
+        .reset_index()
+    )
+    return grouped[ordered_columns]
+
+
+def _aggregate_column(series: pd.Series) -> Any:
+    if is_numeric_dtype(series):
+        return series.sum(min_count=1)
+
+    non_null_values = series.dropna()
+    if non_null_values.empty:
+        return np.nan
+    return non_null_values.iloc[0]
 
 
 def validate_mmm_data(

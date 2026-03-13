@@ -48,6 +48,14 @@ def load_credentials(
     )
     if selected_source is not None:
         return selected_source
+    if selected_provider is not None:
+        if credentials_error:
+            raise ValueError(
+                f"{credentials_error} Add a valid .env or credentials.json file, or set an API key in the sidebar."
+            )
+        raise ValueError(
+            f"No credentials are configured for the selected provider `{selected_provider}`. Configure that provider or choose a different one."
+        )
 
     default_source = _resolve_default_provider(
         manual_model=manual_model,
@@ -83,11 +91,15 @@ def build_payload(
     target_col = session_state["target_col"]
     control_cols = session_state.get("control_cols", [])
     model_results = session_state.get("model_results", {})
+    model_results_meta = session_state.get("model_results_meta", {})
     y = session_state.get("y")
     selected_channels = session_state.get("selected_visual_channels") or model_result.channel_names
     selected_period = session_state.get("results_period", "All data")
+    adstock_type = session_state.get("adstock_type", {})
+    sampler_config = session_state.get("pymc_sampler_config", {})
     date_series = pd.to_datetime(df[date_col])
     period_mask = build_period_mask(date_series, selected_period)
+    selected_rows = int(np.sum(period_mask))
     actual_total = float(y[period_mask].sum()) if y is not None else 0.0
     display_channel_totals, baseline_total, unexplained_total = compute_display_attribution(
         model_result,
@@ -116,8 +128,34 @@ def build_payload(
                 "spend_total": _clean_number(spend_totals.get(ch)),
             }
         )
+    hidden_media_total = sum(
+        float(value)
+        for channel, value in display_channel_totals.items()
+        if channel not in selected_channels
+    )
+    filtered_unexplained_total = hidden_media_total + unexplained_total
 
     predicted_total = float(np.sum(model_result.y_pred[period_mask]))
+    holdout_meta = model_results_meta.get(model_result.model_name, {}).get("holdout")
+    bayesian_meta = model_results_meta.get(model_result.model_name, {}).get("bayesian_diagnostics")
+    methodology_notes = [
+        "Business-facing contribution, baseline, and unexplained totals are bounded display values for interpretation and can differ from the raw fitted decomposition."
+    ]
+    if selected_period != "All data" and any(
+        adstock_type.get(channel, "geometric") == "geometric"
+        for channel in selected_channels
+    ):
+        methodology_notes.append(
+            "Selected-period CPL is directional because adstock can carry prior-period spend into the current window while spend totals are counted only inside the selected period."
+        )
+    if hidden_media_total > 0:
+        methodology_notes.append(
+            "The current channel filter hides some modeled media contribution, so the displayed unexplained gap includes hidden media outside the selected channel view."
+        )
+    if model_result.model_name == "PyMC":
+        methodology_notes.append(
+            "PyMC uncertainty intervals should be trusted more when multiple chains mix well. Treat single-chain output as directional rather than fully validated uncertainty."
+        )
 
     mape_non_zero = None
     if y is not None:
@@ -132,6 +170,10 @@ def build_payload(
         "date_range": f"{date_series[period_mask].min().date()} to {date_series[period_mask].max().date()}",
         "target_metric": "leads",
         "n_weeks": int(np.sum(period_mask)),
+        "row_count_total": int(len(df)),
+        "row_count_selected_period": selected_rows,
+        "channel_count": int(len(selected_channels)),
+        "control_count": int(len(control_cols)),
         "view_context": {
             "selected_period": selected_period,
             "selected_channels": list(selected_channels),
@@ -146,24 +188,81 @@ def build_payload(
         },
         "actual_total_leads": _clean_number(actual_total),
         "predicted_total_leads": _clean_number(predicted_total),
-        "unexplained_total_leads": _clean_number(unexplained_total),
+        "unexplained_total_leads": _clean_number(filtered_unexplained_total),
         "channels": channels,
         "controls": [{"name": col} for col in control_cols],
         "baseline_pct": _clean_number((baseline_total / actual_total) * 100 if not np.isclose(actual_total, 0.0) else 0.0),
         "top_channel": _pick_channel_name(view_cpl_map, best=True),
         "bottom_channel": _pick_channel_name(view_cpl_map, best=False),
+        "methodology_notes": methodology_notes,
     }
+    if holdout_meta is not None:
+        payload["holdout_validation"] = {
+            "train_rows": int(holdout_meta.get("train_rows", 0)),
+            "holdout_rows": int(holdout_meta.get("holdout_rows", 0)),
+            "r_squared": _clean_number(holdout_meta.get("holdout_r_squared")),
+            "rmse": _clean_number(holdout_meta.get("holdout_rmse")),
+            "mae": _clean_number(holdout_meta.get("holdout_mae")),
+            "mape_non_zero": _clean_number(holdout_meta.get("holdout_mape")),
+            "mape_non_zero_coverage": holdout_meta.get("holdout_coverage"),
+        }
+    if model_result.model_name == "PyMC":
+        payload["bayesian_diagnostics"] = {
+            "draws": int(sampler_config.get("draws", 0)),
+            "tune": int(sampler_config.get("tune", 0)),
+            "chains": int(sampler_config.get("chains", 0)),
+            "has_interval_outputs": bool(model_result.coefficient_lower is not None),
+            "status": bayesian_meta.get("status") if isinstance(bayesian_meta, dict) else None,
+            "divergences": bayesian_meta.get("divergences") if isinstance(bayesian_meta, dict) else None,
+            "max_tree_depth_hits": (
+                bayesian_meta.get("max_tree_depth_hits")
+                if isinstance(bayesian_meta, dict)
+                else None
+            ),
+            "max_rhat": bayesian_meta.get("max_rhat") if isinstance(bayesian_meta, dict) else None,
+            "min_ess_bulk": (
+                bayesian_meta.get("min_ess_bulk")
+                if isinstance(bayesian_meta, dict)
+                else None
+            ),
+            "min_ess_tail": (
+                bayesian_meta.get("min_ess_tail")
+                if isinstance(bayesian_meta, dict)
+                else None
+            ),
+        }
 
     if include_comparison and len(model_results) > 1:
         comparison_table: list[dict[str, Any]] = []
         for name, result in model_results.items():
             rmse = float(result.rmse)
+            comparison_holdout = model_results_meta.get(name, {}).get("holdout")
             comparison_table.append(
                 {
                     "model_name": name,
                     "r_squared": _clean_number(result.r_squared),
                     "rmse": _clean_number(rmse),
                     "is_selected_model": bool(name == model_result.model_name),
+                    "holdout_r_squared": _clean_number(
+                        comparison_holdout.get("holdout_r_squared")
+                        if comparison_holdout is not None
+                        else None
+                    ),
+                    "holdout_rmse": _clean_number(
+                        comparison_holdout.get("holdout_rmse")
+                        if comparison_holdout is not None
+                        else None
+                    ),
+                    "holdout_mae": _clean_number(
+                        comparison_holdout.get("holdout_mae")
+                        if comparison_holdout is not None
+                        else None
+                    ),
+                    "holdout_mape_non_zero": _clean_number(
+                        comparison_holdout.get("holdout_mape")
+                        if comparison_holdout is not None
+                        else None
+                    ),
                 }
             )
         payload["comparison_table"] = comparison_table
@@ -212,22 +311,18 @@ def get_summary(
         prompt += (
             "\n\nCondense output to four sections only"
             "\n1. Executive summary"
-            "\n2. Top finding"
+            "\n2. Statistical check"
             "\n3. Recommendation"
             "\n4. Confidence note"
             "\nKeep total output under 180 words."
         )
-
-    try:
-        return _get_text_response(
-            prompt,
-            provider,
-            api_key,
-            model,
-            max_tokens=1400 if detailed else 500,
-        )
-    except Exception as exc:
-        return f"AI summary failed: {exc}"
+    return _get_text_response(
+        prompt,
+        provider,
+        api_key,
+        model,
+        max_tokens=1400 if detailed else 500,
+    )
 
 
 def get_setup_recommendations(

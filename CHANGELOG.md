@@ -11,6 +11,116 @@ This file tracks significant completed work in sequence order.
 
 ## Entries
 
+### 060
+- Task
+  Add persistent code structure rule
+- Change
+  Added a new always-apply Cursor rule that tells the agent to decompose code into smaller modules when it improves clarity, keep concerns separated, prefer pure helpers for calculations, and centralize repeated state-reset logic instead of copying it across files
+- Files
+  `.cursor/rules/code-structure-and-maintainability.mdc`, `CHANGELOG.md`
+- Reason
+  Make the user’s maintainability preference persistent so future work naturally favors cleaner structure and safer refactors
+
+### 059
+- Task
+  Add data overview workflow step
+- Change
+  Added a dedicated `Overview` step after `Data` that surfaces validated dataset coverage, target behavior, per-input diagnostics, a target time-series granularity selector, strongest correlation pairs, a full correlation matrix, and VIF-based multicollinearity checks before transform selection and model fitting
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Give users an in-app statistical review layer for the dataset so they can spot weak signal, poor input quality, and multicollinearity before they start interpreting coefficients or fitting models
+
+### 058
+- Task
+  Thorough regression test and follow-up fixes
+- Change
+  Ran a full scripted Streamlit app regression flow covering guide navigation, local data validation, transform application, OLS and Ridge fitting, Results filtering, session save-clear-load, AI generation, and AI stale-state behavior, then fixed additional edge cases around same-filename dataset invalidation, filtered-view decomposition consistency, safer session selector formatting, deep-merged restored defaults, and holdout-failure isolation
+- Files
+  `mmm/app.py`, `mmm/src/app_state.py`, `mmm/src/session_persistence.py`, `mmm/src/utils.py`, `mmm/src/ai/client.py`, `mmm/src/results_helpers.py`, `CHANGELOG.md`
+- Reason
+  Verify the app end to end with an executable test flow and close the remaining trust and stale-state gaps that only surfaced under integrated runtime testing
+
+### 057
+- Task
+  Add Bayesian diagnostics layer
+- Change
+  Added PyMC sampler diagnostics capture and a dedicated Results diagnostics section that surfaces chain count, divergences, tree-depth hits, `r_hat`, and effective sample size, while also passing those diagnostics into the AI analysis payload so weak Bayesian runs are easier to identify and explain
+- Files
+  `mmm/app.py`, `mmm/src/models/pymc_model.py`, `mmm/src/ai/client.py`, `mmm/src/ai/prompts/analysis_prompt.txt`, `CHANGELOG.md`
+- Reason
+  Make Bayesian uncertainty outputs more transparent and prevent users from treating weak PyMC interval results as stronger evidence than the sampler quality supports
+
+### 056
+- Task
+  Cohesion and statistical soundness pass
+- Change
+  Fixed restored-session source handling, prevented stale setup and AI state from surviving data changes, made the chosen AI provider authoritative, blocked failed AI responses from becoming exportable summaries, aligned filtered Results exports with the visible channel view, corrected the recent-period window logic, standardized penalized models internally, improved Bayesian defaults by raising chains and suppressing weak interval output, and added safer recommendation gating when validation is weak
+- Files
+  `mmm/app.py`, `mmm/src/app_state.py`, `mmm/src/ai/client.py`, `mmm/src/results_helpers.py`, `mmm/src/session_persistence.py`, `mmm/src/models/base.py`, `mmm/src/models/ridge.py`, `mmm/src/models/lasso.py`, `mmm/src/models/elasticnet.py`, `mmm/src/models/pymc_model.py`, `CHANGELOG.md`
+- Reason
+  Keep the app coherent end to end, reduce stale-state and export mismatches, and make the decision layer and model outputs more statistically defensible
+
+### 055
+- Task
+  Review structure and decompose app code
+- Change
+  Reviewed the Streamlit app structure, extracted the shared guide and table-help UI content into a dedicated `ui_content` module, and centralized repeated state-reset behavior in `app_state` so data, transform, and AI invalidation paths stay consistent across the app
+- Files
+  `mmm/app.py`, `mmm/src/app_state.py`, `mmm/src/setup_assistant.py`, `mmm/src/ui_content.py`, `CHANGELOG.md`
+- Reason
+  Reduce `app.py` size, lower coupling between workflow logic and static copy, and prevent subtle stale-state bugs caused by duplicated reset blocks
+
+### 054
+- Task
+  Clarify the guide explanations
+- Change
+  Expanded the standalone MMM guide with a glossary of core terms and rewrote the model, transform, workflow, and output explanations so jargon is defined inline instead of being assumed
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the guide usable by non-experts and reduce confusion around MMM-specific terminology such as adstock, saturation, priors, holdout, and shrinkage
+
+### 053
+- Task
+  Move and redesign the info page
+- Change
+  Removed `Info` from the numbered workflow, added it as a standalone sidebar guide section, and replaced the table-heavy help page with a narrative MMM guide built from workflow explainers, model notes, transform guidance, output-reading sections, and a trust warning
+- Files
+  `mmm/app.py`, `CHANGELOG.md`
+- Reason
+  Make the help content easier to browse as reference material and easier to understand than dense comparison tables inside the main workflow
+
+### 052
+- Task
+  Aggregate duplicate dates on load
+- Change
+  Updated MMM data conversion so duplicate valid dates are consolidated into one row by summing numeric values and keeping the first non-empty non-numeric value, then surfaced a Data-step warning showing how many extra rows were collapsed
+- Files
+  `mmm/src/utils.py`, `mmm/app.py`, `mmm/src/setup_assistant.py`, `CHANGELOG.md`
+- Reason
+  Allow date-level modeling inputs to recover automatically from duplicate-date files instead of failing validation when the intended behavior is additive aggregation
+
+### 051
+- Task
+  Strengthen AI rigor and tone
+- Change
+  Updated the AI analysis and setup prompts to require a statistical rigor check, clearer confidence language, and a sharper executive tone while expanding the analysis payload with holdout validation and methodology notes so the model can reflect app-specific trust limits
+- Files
+  `mmm/src/ai/client.py`, `mmm/src/ai/prompts/analysis_prompt.txt`, `mmm/src/ai/prompts/setup_prompt.txt`, `CHANGELOG.md`
+- Reason
+  Make AI outputs more trustworthy, better written, and less likely to overstate weak or methodologically limited MMM evidence
+
+### 050
+- Task
+  Save, load, and clear MMM session state
+- Change
+  Added local session persistence so the app can save the current MMM workspace, reload a previous run with data, transforms, fitted model outputs, and AI analysis, and clear the current working state from a new sidebar session control block
+- Files
+  `mmm/app.py`, `mmm/src/app_state.py`, `mmm/src/session_persistence.py`, `mmm/.gitignore`, `CHANGELOG.md`
+- Reason
+  Let users pause and resume analysis without rerunning the full workflow and give the app explicit state management controls
+
 ### 049
 - Task
   Keep only mock CSVs in git
