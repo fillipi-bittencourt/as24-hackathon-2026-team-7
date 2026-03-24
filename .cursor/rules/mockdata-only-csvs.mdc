@@ -1,0 +1,11 @@
+---
+description: Only commit the mock CSV dataset
+alwaysApply: true
+---
+
+# Mock CSV Only
+
+- Do not commit or push business CSV files
+- The only CSV file that may be committed is `mmm/data/mmm_demo_sample.csv`
+- Treat any other CSV as local-only unless the user explicitly asks for an exception
+- If a CSV is already tracked by mistake, remove it from version control while keeping it local unless the user says otherwise

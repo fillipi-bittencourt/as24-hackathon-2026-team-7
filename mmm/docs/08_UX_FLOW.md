@@ -1,26 +1,37 @@
 # UX Flow
 
-## Screen Structure (Streamlit Tabs)
+## Screen Structure (sidebar step menu)
 
-| Tab | Purpose | Enabled when |
-|-----|---------|--------------|
+| Step | Purpose | Enabled when |
+|------|---------|--------------|
 | Data | Load, preview, validate input CSV | Always |
+| Overview | Dataset diagnostics, target behavior, and multicollinearity checks | Data valid |
 | Config | Transform params + regularization hyperparams | Data valid |
+| Priors | Bayesian prior settings and sampler controls | Data valid |
 | Fit | Select models, run fit, view fit status | Transforms applied |
-| Results | Model comparison, three decisions, channel insights, quick insights | ≥1 model fitted |
-| AI | Executive summary for the selected model; stretch Q&A later | ≥1 model fitted |
+| Results | Model comparison, validation, three decisions, channel insights, quick insights | ≥1 model fitted |
+| AI | Analysis generation, provider setup, and AI exports | ≥1 model fitted |
 
-Tabs are always visible. Gating is done by showing a message inside the tab block using `if/else` — not by hiding tabs and not by calling `st.stop()`.
+Separate from the numbered workflow:
+
+| Section | Purpose |
+|---------|---------|
+| Guide | MMM explainer for models, transforms, and output interpretation |
+
+The sidebar step menu is always visible. Navigation uses a vertical list of sidebar buttons. Gating is done by showing a message inside each section using `if/else`.
 
 ---
 
 ## User Journey
 
 1. **Data** — Upload CSV or select from `data/`; select date_col, target_col, **channels to include** (multiselect — add/remove channels as needed); validate; preview. Channel selection can be edited after load (deselect to remove a channel); changing it re-validates and resets transforms and fits.
-2. **Config** — Per-channel: select **adstock type** (Geometric / None) and **saturation type** (Log / Hill / None); set theta (if geometric), alpha/k (if hill); set regularization alpha and l1_ratio; click "Apply transforms". Recommended defaults: **Geometric + Log**
-3. **Fit** — Select models (MVP: OLS / Ridge; stretch: Lasso / ElasticNet / PyMC); click "Fit selected" or "Fit all"; spinner + R² shown per model
-4. **Results** — Model selector at top; comparison tables; three decision sections; expandable Channel Insights; expandable Quick Insights
-5. **AI** — Provider setup; executive summary for the selected model. Compare-all and Business Q&A are stretch features
+2. **Overview** — Review validated dataset quality, target behavior, input diagnostics, and multicollinearity before choosing transforms
+3. **Config** — Per-channel: select **adstock type** (Geometric / None) and **saturation type** (Log / Hill / None); set theta (if geometric), alpha/k (if hill); set regularization alpha and l1_ratio; click "Apply transforms". Recommended defaults: **Geometric + Log**
+4. **Priors** — Choose the PyMC prior settings and sampler controls before fitting the Bayesian model
+5. **Fit** — Select models and fit them one by one or all at once; spinner and status line shown per model
+6. **Results** — Model selector at top; display period selector; variable filter; comparison tables; validation diagnostics; three decision sections; exports; expandable Channel Insights; expandable Quick Insights
+7. **AI** — Provider setup; analysis depth selector; optional multi-model context; generated analysis; AI exports
+8. **Guide** — Review model, transform, and interpretation guidance at any time from the separate sidebar help section
 
 ---
 
@@ -44,10 +55,15 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 | `l1_ratio` | `float` | Config tab | Fit (ElasticNet) |
 | `transforms_applied` | `bool` | Config tab | Fit gate |
 | `transform_fingerprint` | `str` | Config tab | Config, Fit, Results |
+| `pymc_prior_config` | `dict[str, Any]` | Priors tab | Fit |
+| `pymc_sampler_config` | `dict[str, Any]` | Priors tab | Fit |
+| `pymc_prior_signature` | `str` | Priors tab | Priors, Fit, Results |
 | `model_results` | `dict[str, ModelResult]` | Fit tab | Results, AI |
 | `model_results_meta` | `dict[str, dict]` | Fit tab | Results |
 | `selected_model` | `str` (model name key) | Results tab | AI tab |
-| `qa_history` | `list[dict]` — each: `{question, answer, model, timestamp}` | AI tab | AI tab |
+| `selected_visual_channels` | `list[str]` | Results tab | Results tab |
+| `show_baseline_visual` | `bool` | Results tab | Results tab |
+| `results_period` | `str` | Results tab | Results tab |
 
 ---
 
@@ -58,105 +74,109 @@ Tabs are always visible. Gating is done by showing a message inside the tab bloc
 | File picker | Shows CSV files from `mmm/data/`; if empty shows "No files yet — use uploader" |
 | Column selectors | date_col (selectbox), target_col (selectbox), **channel_cols** (multiselect — select which channels to include; **deselect to remove**; ≥1 required), **control_cols** (multiselect, optional). After load, user can change channel/control selection without re-uploading; app re-validates and resets transforms + model results |
 | Transform sliders | Per channel: **Adstock type** (Geometric / None), **Saturation type** (Log / Hill / None); then theta slider (if geometric), alpha/k inputs (if hill); recommended defaults are Geometric + Log |
+| Priors form | Intercept mean mode, intercept sigma scale, channel prior family, channel sigma scale, control sigma scale, noise sigma scale, draws, tune, chains |
 | Reg params | Alpha input for Ridge/Lasso; alpha + l1_ratio for ElasticNet; stored in session_state |
 | Apply transforms | Validates inputs, runs transform_media, sets transforms_applied = True, stores `transform_fingerprint`, and clears stale fits when transform-defining settings change |
-| Model multiselect | MVP: OLS and Ridge. Stretch models can be added later |
+| Save priors | Stores the PyMC prior settings and clears only the stale PyMC result if those settings changed |
+| Model multiselect | OLS, Ridge, Lasso, ElasticNet, and PyMC are available |
 | Fit buttons | "Fit selected" + "Fit all"; spinner per model; R² shown after each |
+| Sidebar step menu | Vertical list of sidebar buttons — one button per step, current step highlighted, readiness shown in the label |
 | Model selector (Results) | Selectbox — switches all sections; stored as selected_model in session_state |
+| Display period | Selectbox — `All data`, `Last 4 weeks`, `Last 8 weeks`, `Last 12 weeks`, `Last 26 weeks` |
+| Variable filter | Multiselect — controls which channels appear in tables and charts |
+| Baseline toggle | Checkbox — includes or hides baseline and unexplained portions in visuals |
 | Comparison tables | Always show all fitted models; model selector only affects detail sections below |
 | Channel Insights | st.expander collapsed by default — opens on demand |
 | Quick Insights | st.expander collapsed by default — compact summary, open on demand |
-| AI summary | "Generate summary" button — triggers LLM call using selected_model |
-| AI Q&A templates | Stretch feature only |
-| Q&A history | Stretch feature only |
+| Results export | Download current results view as CSV and PDF |
+| AI analysis | "Generate analysis" button — uses selected model and optional cross-model context |
+| AI exports | Download analysis as CSV and PDF |
 
 Hard rule:
 - If channel/control selection or transform settings change, clear `model_results` and `selected_model`
 - If only regularization changes, keep results visible but require re-fit
+- If only PyMC prior settings change, clear only the `PyMC` result and keep the other fitted models
 
 ---
 
-## Results Tab Layout (in order, top to bottom)
+## Results Step Layout (in order, top to bottom)
 
-```
-[Model selector dropdown]  ← stores session_state["selected_model"]
+```text
+[Model selector]
+[Display period]
+[Variables shown in charts]
+[Show baseline and unexplained portion]
 
-─── Model Comparison ───────────────────────────────────
-  st.dataframe: R², RMSE by model (all fitted models)
-  st.dataframe: coefficient comparison — channels × models
+Model comparison
+  dataframe with in-sample and holdout fit metrics
+  coefficient comparison table
+  CPL comparison table
 
-─── What is happening? ─────────────────────────────────
-  3× st.metric:  Total contribution (leads) | Top channel (CPL, €/lead) | R²
+What is happening
+  metrics for Total leads, Media leads, Baseline leads, Unexplained gap
+  metrics for Top channel by CPL and Model fit
+  actual vs predicted trend
+  labeled bar chart for top lead split
 
-─── Why is it happening? ───────────────────────────────
-  st.dataframe: Channel / Coefficient / CPL (€ per lead) / Contribution / Share
-  st.bar_chart: CPL by channel (ascending — best first)
+Validation diagnostics
+  holdout actual vs predicted
+  holdout residuals
 
-─── What should leadership do next? ────────────────────
-  3 bullet points with computed numbers (invest in lowest CPL, reduce highest CPL, reallocate %)
+Why is it happening
+  channel table with coefficient, CPL, contribution, share
+  spend share vs contribution share benchmark
+  labeled CPL bar chart
 
-─── st.expander("Channel Insights") ────────────────────
-  st.area_chart: leads decomposition over time
-  Per-channel cards (st.columns): CPL / transform types (Adstock, Saturation) / adstock weeks / saturation badge
-  st.line_chart: saturation curves (one per channel; Hill only; Log/none show note or simple curve)
+What should leadership do next
+  bullet recommendations with a directional budget shift heuristic
 
-─── st.expander("Quick Insights", expanded=False) ──────
-  2-column grid of st.metric / st.info cards:
-  • Overall marketing CPL (€ per lead)
-  • Best / worst channel (by CPL)
-  • Media vs baseline split
-  • Over-saturated channels
-  • Adstock carryover table
-  • Recommended budget shift
+Channel Insights expander
+  stacked bar chart over time with top N plus other
+  channel details table
+  saturation curves
+
+Export
+  results overview CSV
+  channel breakdown CSV
+  results PDF
+
+Quick Insights expander
+  overall marketing CPL
+  best channel
+  worst channel
+  media vs baseline
 ```
 
 ---
 
-## AI Tab Layout
+## AI Step Layout
 
-```
+```text
 [Credentials status banner]
-[Provider radio: OpenAI | Anthropic]  ← from preferred_provider in credentials.json
-[Sidebar: API key override input if no credentials.json]
-
-─── Executive Summary ──────────────────────────────────
-  Radio: [Single model (uses selected_model)]
-  [Generate summary] button
-  → LLM response rendered with st.markdown
+[Provider radio]
+[Sidebar API key override]
+[Analysis depth: In-depth | Executive short]
+[Include all fitted models in the analysis context]
+[Generate analysis]
+  -> rendered markdown analysis
+[AI analysis CSV]
+[AI analysis PDF]
 ```
 
 ---
 
-## Tab Gating (how it works in Streamlit)
+## Step gating
 
-**Do NOT use `st.stop()` inside tab blocks.** It stops the entire script, preventing all subsequent tabs from rendering.
+**Do NOT use `st.stop()` inside the section renderers.** It would stop the entire script and break the rest of the navigation flow.
 
-Use `if/else` inside each `with tab_X:` block:
+Use `if/else` inside each renderer:
 
 ```
-with tab_config:
+def render_config_tab():
     if not st.session_state.get("valid"):
         st.warning("Load and validate data in the Data tab first.")
     else:
         # ... all Config content
-
-with tab_fit:
-    if not st.session_state.get("transforms_applied"):
-        st.warning("Apply transforms in the Config tab first.")
-    else:
-        # ... all Fit content
-
-with tab_results:
-    if not st.session_state.get("model_results"):
-        st.info("Fit at least one model in the Fit tab to see results.")
-    else:
-        # ... all Results content
-
-with tab_ai:
-    if not st.session_state.get("model_results"):
-        st.info("Fit at least one model first to enable AI analysis.")
-    else:
-        # ... all AI content
 ```
 
-The tabs are always rendered and clickable. Each tab independently shows either a message or its content.
+The sidebar menu remains browsable at all times. Each step independently shows either a message or its content.

@@ -1,73 +1,109 @@
 # Demo Prep
 
-Use this file to prepare the live run and keep the story short, concrete, and reliable.
+Use this file to keep the live run short, stable, and easy to narrate.
 
 ---
 
 ## Demo goal
 
-Show that the team rebuilt decision-making under pressure with a usable MMM app that answers:
+Show that the team rebuilt decision support with a usable MMM app that answers:
 
-1. What is happening?
-2. Why is it happening?
-3. What should leadership do next?
+1. What is happening
+2. Why is it happening
+3. What should leadership do next
 
 ---
 
-## Demo flow
+## Demo-safe mode
 
-1. Open the app with data already available
-2. Show the Data tab and confirm the dataset loaded cleanly
-3. Show the Config tab and say you are using the recommended defaults: `Geometric adstock + Log saturation`
-4. Fit `OLS`, then optionally `Ridge`
-5. Open the Results tab and walk through the three decision sections
-6. Open the AI tab and generate the executive summary
+Use this as the default live path unless you have already tested the full advanced flow on the presentation machine.
+
+1. Start with `mmm/data/mmm_demo_sample.csv`
+2. Use the sidebar step menu and confirm the file loads cleanly in `Data`
+3. Open `Overview` and briefly show the health tags, target trend, and multicollinearity checks
+4. Optionally open `Guide` if the audience needs the MMM explainer
+5. Keep the default transforms in `Config`
+6. Fit `OLS`
+7. Fit `Ridge`
+8. Open `Results`
+9. Use `All data`
+10. Show the four top metrics
+11. Show the holdout validation view
+12. Show the channel breakdown table
+13. Open `Channel Insights` and show the stacked time chart and saturation curves
+14. Open `AI`
+15. Select `In-depth`
+16. Keep `Include all fitted models in the analysis context` enabled
+17. Generate analysis
+
+If you want to show `PyMC` in the demo, prefer loading a prepared saved state that already contains the Bayesian results and diagnostics instead of fitting it live.
 
 ---
 
 ## What to say
 
-### What is happening?
+### What is happening
 
-- Total attributed leads: `[fill in]`
+- Total leads: `[fill in]`
+- Media leads: `[fill in]`
+- Baseline leads: `[fill in]`
+- Unexplained gap: `[fill in]`
+
+### Why is it happening
+
 - Best channel by CPL: `[fill in]`
-- Model fit summary: `[fill in]`
+- Weakest channel by CPL: `[fill in]`
+- Most important contribution pattern: `[fill in]`
 
-### Why is it happening?
+### What should leadership do next
 
-- Best performing channels: `[fill in]`
-- Weak channels: `[fill in]`
-- Any saturation or carryover note worth saying: `[fill in]`
+- Directional action: `[fill in]`
+- Suggested budget shift: `[fill in]`
+- Confidence note: `This is an in-sample model. The recommendation is directional, not a forecast.`
 
-### What should leadership do next?
+---
 
-- Directional recommendation: `[fill in]`
-- Budget shift heuristic: `[fill in]`
-- Confidence caveat: `This is an in-sample model and the recommendation is directional, not a forecast.`
+## Recommended narration
+
+- `Data` proves the file is valid and ready for modeling
+- `Overview` proves the data is statistically usable before modeling starts
+- `Config` shows the assumptions are simple and controllable
+- `Fit` shows that two methods agree on the broad story
+- `Results` translates the model into leads, efficiency, and action
+- `AI` turns the model output into an executive-ready explanation
+
+---
+
+## If latency hits
+
+- if AI is slow, stop after `Results`
+- if `PyMC` is slow, switch to a prepared saved state or skip it
+- if business data is unstable, switch to the sample file immediately
+- if the app is slow, show prepared screenshots and narrate the findings
 
 ---
 
 ## AI line
 
-Use one short sentence only:
+Use one sentence:
 
-`We used AI to help build the app and to generate an executive-ready summary directly from the model results.`
+`We used AI both during development and at runtime to turn model outputs into an executive-ready analysis.`
 
 ---
 
-## Backup plan
+## Backup assets
 
-- Have screenshots of the Results tab ready
-- Have one screenshot of the AI summary ready
-- Keep `mmm_demo_sample.csv` available in case the business file has issues
-- If AI fails live, continue with the Results tab only
+- one screenshot of the `Results` top section
+- one screenshot of the channel breakdown
+- one screenshot of the AI analysis
+- sample CSV ready to load
 
 ---
 
 ## Final checks
 
-- [ ] App opens on the presentation machine
-- [ ] Data is already loaded or ready to load quickly
-- [ ] Presenter knows the top channel, worst channel, and recommendation
+- [ ] app opens on the presentation machine
+- [ ] sample file is available and easy to load
+- [ ] presenter knows the top and weakest channel
 - [ ] AI credentials work before the presentation starts
-- [ ] Backup screenshots are open and accessible
+- [ ] backup screenshots are accessible

@@ -9,29 +9,29 @@
 | Transforms | numpy, scipy |
 | Frequentist | statsmodels (OLS), sklearn (Ridge, Lasso, ElasticNet) |
 | Bayesian | pymc, arviz |
-| Viz | matplotlib, streamlit native charts |
+| Viz | altair, matplotlib |
 | AI | openai, anthropic |
 
 ---
 
 ## Module Structure
 
-```
-src/                          # pre-scaffolded; __init__.py files exist
+```text
+src/
 ├── __init__.py
-├── transforms.py             # to be created — adstock, saturation; transform_media accepts per-channel adstock_type and saturation_type
+├── transforms.py
 ├── models/
-│   ├── __init__.py           # exists
-│   ├── base.py               # to be created — ModelResult, shared interface
-│   ├── ols.py                # to be created
-│   ├── ridge.py              # to be created
-│   ├── lasso.py              # to be created
-│   ├── elasticnet.py         # to be created
-│   └── pymc_model.py         # to be created
+│   ├── __init__.py
+│   ├── base.py
+│   ├── ols.py
+│   ├── ridge.py
+│   ├── lasso.py
+│   ├── elasticnet.py
+│   └── pymc_model.py
 ├── ai/
-│   ├── __init__.py           # exists
-│   └── client.py             # to be created — OpenAI/Claude wrapper
-└── utils.py                  # to be created — convert_mmm_data (dtype conversion), validate_mmm_data
+│   ├── __init__.py
+│   └── client.py
+└── utils.py
 ```
 
 ---
@@ -62,11 +62,12 @@ def predict(X: np.ndarray) -> np.ndarray  # shape (n_rows,)
 
 API keys are loaded in priority order:
 
-1. **`mmm/credentials.json`** (preferred) — see `credentials.json.example` for schema
-2. **Environment variables** — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
-3. **Sidebar input** — manual override in the app
+1. **Sidebar input** — manual override in the app
+2. **`mmm/.env`**
+3. **`mmm/credentials.json`**
+4. **Environment variables** — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
 
-Never hardcode keys. `credentials.json` is gitignored.
+Never hardcode keys. `.env` and `credentials.json` are gitignored.
 
 **Datatypes:** Input CSV columns may be object/int; the data layer **detects** and **converts** before validation. After conversion: date column → `datetime64[ns]`, target and channel/control columns → `float64`. `X_transformed` and `y` are numpy arrays with dtype **float64**. See **04_DATA_MODEL.md** (Datatypes and conversion) and **10_BUILD_MMM.md** Step 1.1.
 
@@ -84,6 +85,12 @@ Never hardcode keys. `credentials.json` is gitignored.
 
 ```bash
 cd mmm
-source .venv/bin/activate
-streamlit run app.py
+./run_app.sh
 ```
+
+## Current UI behavior
+
+- navigation uses a sidebar step menu with six sections
+- step readiness is shown inline in the menu labels
+- results support period filtering, channel filtering, baseline toggle, and CSV/PDF export
+- AI supports short and in-depth analysis plus CSV/PDF export

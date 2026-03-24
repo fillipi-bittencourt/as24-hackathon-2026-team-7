@@ -8,27 +8,27 @@
 
 - **App location:** `mmm/` inside `as24-hackathon-2026-team-7/`
 - **Entry point:** `mmm/app.py`
-- **Python version:** 3.10 (pinned in `mmm/.python-version`)
+- **Python version:** 3.9 (pinned in `mmm/.python-version`)
 - **Virtual environment:** `mmm/.venv/` (gitignored — created during setup)
 - **Dependencies:** `mmm/requirements.txt`
-- **Run command:** `cd as24-hackathon-2026-team-7/mmm && source .venv/bin/activate && streamlit run app.py`
+- **Recommended run command:** `cd as24-hackathon-2026-team-7/mmm && ./run_app.sh`
 
 All paths below are relative to the repo root unless stated otherwise.
 
 ---
 
-## Step 1 — Verify Python 3.10+
+## Step 1 — Verify Python 3.9+
 
 ```bash
 python3 --version
 ```
 
-Output must be `Python 3.10.x` or higher. If not:
+Output must be `Python 3.9.x` or higher. If not:
 
 ```bash
-pyenv install 3.10.14
+pyenv install 3.9.18
 cd as24-hackathon-2026-team-7/mmm
-pyenv local 3.10.14
+pyenv local 3.9.18
 ```
 
 pyenv not installed? See https://github.com/pyenv/pyenv#installation
@@ -39,10 +39,10 @@ pyenv not installed? See https://github.com/pyenv/pyenv#installation
 
 ```bash
 cd as24-hackathon-2026-team-7/mmm
-python3.10 -m venv .venv
+python3.9 -m venv .venv
 ```
 
-If `python3.10` is not found, use `python3` (it will work if Step 1 passed):
+If `python3.9` is not found, use `python3` (it will work if Step 1 passed):
 
 ```bash
 python3 -m venv .venv
@@ -52,7 +52,12 @@ python3 -m venv .venv
 
 ## Step 3 — Install dependencies
 
-Start with the MVP dependency set so the team can prove the app works before adding optional extras.
+There are now two valid setup paths:
+
+- manual lightweight path using `requirements-mvp.txt`
+- full launcher path using `./run_app.sh`, which installs the shipped app dependencies automatically
+
+Start with the MVP dependency set only if you intentionally want a lighter manual environment path.
 
 ```bash
 cd as24-hackathon-2026-team-7/mmm
@@ -62,13 +67,13 @@ cd as24-hackathon-2026-team-7/mmm
 
 MVP demo target: Streamlit, pandas, numpy, scipy, statsmodels, scikit-learn, matplotlib, and OpenAI.
 
-Only after the MVP flow works, install the optional full stack:
+If you want the full app environment manually, install the full stack:
 
 ```bash
 .venv/bin/pip install -r requirements.txt
 ```
 
-> PyMC installation takes time and is optional for the first usable demo. Do not let it block Data → Fit → Results → AI summary.
+> The full launcher `./run_app.sh` is the easiest day-to-day run path and will ensure the dependencies needed by the shipped app are present.
 
 If install fails midway, re-run the same command — pip is safe to retry.
 
@@ -98,11 +103,33 @@ Optional full-stack check after stretch packages are installed:
 
 ## Step 5 — Set up credentials
 
+The app supports four credential sources in this order:
+
+1. Manual sidebar override
+2. `mmm/.env`
+3. `mmm/credentials.json`
+4. Existing shell environment variables
+
+For local default use, create `mmm/.env`:
+
+```bash
+cp as24-hackathon-2026-team-7/mmm/.env.example as24-hackathon-2026-team-7/mmm/.env
+```
+
+Then edit it:
+
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
+```
+
+If you prefer the JSON path, create:
+
 ```bash
 cp as24-hackathon-2026-team-7/mmm/credentials.json.example as24-hackathon-2026-team-7/mmm/credentials.json
 ```
 
-Edit `mmm/credentials.json` and fill in at least one API key. For the MVP, use one provider only. Ensure `preferred_provider` matches the key you fill in (e.g. use `"openai"` when setting `openai_api_key`).
+Edit `mmm/credentials.json` and fill in at least one API key. Ensure `preferred_provider` matches the key you fill in.
 
 ```json
 {
@@ -114,7 +141,7 @@ Edit `mmm/credentials.json` and fill in at least one API key. For the MVP, use o
 }
 ```
 
-`credentials.json` is gitignored — it will never be committed. See `mmm/docs/09_AI_ANALYSIS.md` for full schema and fallback options.
+`.env` and `credentials.json` are gitignored. See `mmm/docs/09_AI_ANALYSIS.md` for full schema and fallback options.
 
 ---
 
@@ -140,11 +167,10 @@ Save as mmm/data/mmm_synthetic.csv
 
 ```bash
 cd as24-hackathon-2026-team-7/mmm
-source .venv/bin/activate
-streamlit run app.py
+./run_app.sh
 ```
 
-App opens at **http://localhost:8501**
+The script keeps the terminal open and prints the local URL, usually **http://localhost:8501** unless `PORT` is set.
 
 ---
 
@@ -156,6 +182,7 @@ App opens at **http://localhost:8501**
 | `streamlit: command not found` | `.venv` not activated | Run `source .venv/bin/activate` before `streamlit run app.py` |
 | PyMC install fails on macOS | Missing C compiler | Skip PyMC for MVP, or run `xcode-select --install`, then re-run `pip install -r requirements.txt` later |
 | PyMC install fails (NumPy error) | NumPy version conflict | Skip PyMC for MVP, or run `.venv/bin/pip install "numpy<2.0"`, then retry the full requirements later |
+| `run_app.sh` says the port is already in use | Another local app is already running | Use another port, e.g. `PORT=8507 ./run_app.sh` |
 | `credentials.json not found` | File not copied | `cp credentials.json.example credentials.json` and fill in key |
 | AI tab key error | Wrong key or wrong provider | Check `preferred_provider` matches the key you filled in |
 | `src.utils not found` | Running from repo root | Must run `streamlit run app.py` from inside `mmm/` |
@@ -166,12 +193,15 @@ App opens at **http://localhost:8501**
 
 | File | Purpose |
 |------|---------|
-| `mmm/app.py` | Streamlit entry point (placeholder — built by LLM) |
+| `mmm/app.py` | Streamlit entry point |
+| `mmm/run_app.sh` | One-command local launcher |
+| `mmm/.env` | Local API key file (gitignored) |
+| `mmm/.env.example` | `.env` template |
 | `mmm/requirements.txt` | Full dependency set including optional extras |
 | `mmm/requirements-mvp.txt` | Fast MVP dependency set |
 | `mmm/credentials.json` | API keys (gitignored — copy from credentials.json.example) |
 | `mmm/credentials.json.example` | Credentials schema reference |
-| `mmm/.python-version` | Python 3.10 pin (for pyenv) |
+| `mmm/.python-version` | Python 3.9 pin (for pyenv) |
 | `mmm/data/` | Place business CSV here |
-| `mmm/src/` | App source code (created during build) |
-| `mmm/docs/10_BUILD_MMM.md` | Step-by-step app build instructions |
+| `mmm/src/` | App source code |
+| `mmm/docs/10_BUILD_MMM.md` | Step-by-step engineering build history and instructions |

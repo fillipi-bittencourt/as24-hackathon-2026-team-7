@@ -1,140 +1,108 @@
-# Project Checklist — Complete step-by-step
+# Project Checklist
 
-Work through this file top to bottom. Every step must be done before moving to the next phase.
+Use this checklist to verify the current app, not to rebuild it from scratch.
 
-> **For agents:** Follow steps in order. When the user says "what's next?", read where the last unchecked item is and proceed from there.
-
----
-
-## Phase 0 — Before you start
-
-- [ ] **0.1** `TEAM.md` shows `business_area = Marketing ROI`, `tech_stack = Streamlit`, `data_source = business data`
-- [ ] **0.2** `docs/DECISIONS_FRAMEWORK.md` mapping table is filled — What / Why / What next for MMM
-- [ ] **0.3** Everyone agrees on the hackathon target: **usable first, not fancy**
-- [ ] **0.4** Everyone agrees on the MVP scope: `Data + Config + OLS + Ridge + Results + AI single-model summary`
+> For agents: treat this as the current verification and demo-readiness checklist.
 
 ---
 
-## Phase 1 — Fast MVP environment
+## Phase 0 — Team alignment
 
-- [ ] **1.1** Clone the repo: `git clone <repo-url>`
-- [ ] **1.2** Confirm Python 3.10+: `python3 --version`
-- [ ] **1.3** Create a virtual environment:
-  ```
-  cd as24-hackathon-2026-team-7/mmm
-  python3.10 -m venv .venv
-  ```
-- [ ] **1.4** Install the MVP dependency set:
-  ```
-  .venv/bin/pip install --upgrade pip
-  .venv/bin/pip install -r requirements-mvp.txt
-  ```
-- [ ] **1.5** Verify the MVP environment:
-  ```
-  .venv/bin/python -c "import streamlit, pandas, numpy, statsmodels, sklearn, openai; print('OK')"
-  ```
-- [ ] **1.6** Optional only after MVP works: install `requirements.txt` for PyMC, Anthropic, and other stretch features
-
-> **Agent:** See `mmm/docs/02_SETUP.md` for the full setup reference and troubleshooting table.
+- [ ] `TEAM.md` reflects the chosen business area and data source
+- [ ] `docs/DECISIONS_FRAMEWORK.md` is aligned to MMM and the three leadership questions
+- [ ] everyone agrees on the hackathon rule: usable first, not fancy
 
 ---
 
-## Phase 2 — Data
+## Phase 1 — Environment and app startup
 
-Start with the committed demo file so the team can prove the app works before switching to business data.
-
-- [ ] **2.1** Open `mmm/data/mmm_demo_sample.csv` and confirm the expected columns are present
-- [ ] **2.2** Place business data in `mmm/data/` only after the sample run works
-- [ ] **2.3** Validate schema manually: `date`, `target`, and at least one `*_spend` column; no all-null columns; at least 52 rows preferred
-- [ ] **2.4** If business data is not ready, keep using the demo sample and proceed anyway
-
----
-
-## Phase 3 — Build the app
-
-The app is not yet implemented. The LLM builds it by following `mmm/docs/10_BUILD_MMM.md`.
-
-- [ ] **3.1** Open Cursor in the `mmm/` folder
-- [ ] **3.2** Send this prompt to the agent:
-  ```
-  Read mmm/docs/10_BUILD_MMM.md and implement the MMM Streamlit app. Start with the MVP only: Data, Config, OLS, Ridge, Results, and AI single-model executive summary. Use mmm/data/mmm_demo_sample.csv for the first successful run. Do one task item at a time: complete one [ ] item, verify it works, mark it [V], then proceed to the next. Do not skip items.
-  ```
-- [ ] **3.3** When defining `ModelResult`, load `mmm/docs/06_MODELS.md`
-- [ ] **3.4** When building AI helpers, load `mmm/docs/09_AI_ANALYSIS.md`
-- [ ] **3.5** Keep the recommended transform defaults simple: **Geometric adstock + Log saturation**
-- [ ] **3.6** Do not move to stretch features until the MVP flow works end to end
+- [ ] confirm Python `3.9+`
+- [ ] create `.venv` in `mmm/`
+- [ ] if using the manual lightweight path, install `mmm/requirements-mvp.txt`
+- [ ] run `mmm/run_app.sh`
+- [ ] confirm the app opens without crashing
+- [ ] confirm the sidebar step menu shows `Data`, `Overview`, `Config`, `Priors`, `Fit`, `Results`, `AI`
+- [ ] confirm the separate sidebar `Guide` section opens the MMM explainer
 
 ---
 
-## Phase 4 — MVP validation
+## Phase 2 — First working run with sample data
 
-### 4A — App startup
-
-- [ ] **4A.1** `cd mmm && source .venv/bin/activate && streamlit run app.py` opens the app without errors
-- [ ] **4A.2** All five tabs are visible: Data, Config, Fit, Results, AI
-- [ ] **4A.3** Tabs show clear guidance messages when prerequisites are missing instead of crashing
-
-### 4B — Data and Config
-
-- [ ] **4B.1** Load `mmm_demo_sample.csv` and validation passes
-- [ ] **4B.2** Data preview shows expected shape and usable types
-- [ ] **4B.3** Config uses **Geometric** as the first adstock option
-- [ ] **4B.4** Config uses **Log** as the first saturation option
-- [ ] **4B.5** Clicking "Apply transforms" sets `session_state.X_transformed` and `session_state.y`
-- [ ] **4B.6** Changing channel selection or transform settings clears stale fitted results
-
-### 4C — Fit
-
-- [ ] **4C.1** MVP model list shows `OLS` and `Ridge`
-- [ ] **4C.2** Fit `OLS` → spinner shows → completes → status line appears
-- [ ] **4C.3** Fit `Ridge` → same pattern
-- [ ] **4C.4** Results tab becomes active once at least one model is fitted
-- [ ] **4C.5** Stretch models (`Lasso`, `ElasticNet`, `PyMC`) are hidden, disabled, or clearly marked optional until implemented
-
-### 4D — Results
-
-- [ ] **4D.1** Model comparison table renders for fitted models
-- [ ] **4D.2** The three decision sections render with real numbers
-- [ ] **4D.3** "What should leadership do next?" is clearly framed as a **heuristic recommendation**, not a forecast
-- [ ] **4D.4** Results explain that reported fit and attribution are in-sample
-
-### 4E — AI summary
-
-- [ ] **4E.1** `credentials.json` works with one provider
-- [ ] **4E.2** AI tab generates a **single-model executive summary**
-- [ ] **4E.3** AI failures show a human-readable message and do not break the rest of the app
-- [ ] **4E.4** Compare-all and Q&A are treated as stretch features unless already implemented cleanly
+- [ ] load `mmm/data/mmm_demo_sample.csv`
+- [ ] validation passes with no blocking data errors
+- [ ] data preview is visible and date range is correct
+- [ ] `Overview` renders dataset diagnostics, target chart, and multicollinearity checks
+- [ ] default transforms are `Geometric` and `Log`
+- [ ] click `Apply transforms` successfully
 
 ---
 
-## Phase 5 — Switch from sample to business data
+## Phase 3 — Fit verification
 
-- [ ] **5.1** Replace the sample file with business data only after the sample path works
-- [ ] **5.2** Document business-data quirks in `mmm/data/README.md`
-- [ ] **5.3** Re-run Data → Config → Fit → Results → AI on the business file
-
----
-
-## Phase 6 — Demo prep
-
-- [ ] **6.1** Fill in `docs/DEMO_PREP.md` with real numbers from the app
-- [ ] **6.2** Rehearse the core flow once with the sample file as a backup
-- [ ] **6.3** Rehearse once with business data if available
-- [ ] **6.4** Keep the live demo path under 10 minutes
-- [ ] **6.5** Prepare screenshots of Results and AI as backup
-- [ ] **6.6** Confirm the presentation machine can run the exact demo commit
+- [ ] fit `OLS`
+- [ ] fit `Ridge`
+- [ ] confirm both appear in the comparison table
+- [ ] confirm `Lasso` and `ElasticNet` are available for optional deeper comparison
+- [ ] if `PyMC` is installed, confirm priors can be saved from the `Priors` tab before fitting
+- [ ] if demoing `PyMC`, confirm a prepared saved state is available as the safest presentation path
 
 ---
 
-## Phase 7 — Stretch only after everything above is green
+## Phase 4 — Results verification
 
-- [ ] Add `Lasso` and `ElasticNet`
-- [ ] Add `PyMC`
-- [ ] Add Channel Insights deep dives
-- [ ] Add Quick Insights cards
-- [ ] Add AI compare-all mode
-- [ ] Add AI Q&A templates and history
-- [ ] Add exports and scenario tools
+- [ ] Results step shows a model selector
+- [ ] comparison table renders with `R²`, `RMSE`, `MAE`, and `MAPE non-zero`
+- [ ] holdout validation diagnostics render for the fitted models when enough rows are available
+- [ ] top section shows `Total leads`, `Media leads`, `Baseline leads`, and `Unexplained gap`
+- [ ] the displayed decomposition adds cleanly to total leads
+- [ ] channel table shows coefficients, CPL, contribution, and share
+- [ ] chart variable filter works
+- [ ] display period filter works
+- [ ] channel insights use stacked bars over time
+- [ ] exports work for results as `CSV` and `PDF`
+
+---
+
+## Phase 5 — AI verification
+
+- [ ] credentials work from either `.env`, `credentials.json`, env vars, or manual sidebar override
+- [ ] AI failures do not break the rest of the app
+- [ ] `Executive short` and `In-depth` both generate usable output
+- [ ] when enabled, multi-model context uses the fitted comparison set
+- [ ] AI export works as `CSV` and `PDF`
+
+---
+
+## Phase 6 — Business data switch
+
+- [ ] use the sample file as the fallback baseline
+- [ ] place business data in `mmm/data/`
+- [ ] confirm required fields exist: `date`, `target`, at least one `*_spend`
+- [ ] re-run Data → Config → Fit → Results → AI on the business file
+- [ ] note any business-data quirks in `mmm/data/README.md`
+
+---
+
+## Phase 7 — Demo-safe rehearsal
+
+- [ ] rehearse the short path: sample data → defaults → `OLS` and `Ridge` → `Results` → `AI`
+- [ ] keep the live path under 10 minutes
+- [ ] have screenshots for `Results` and `AI`
+- [ ] have a fallback plan if `PyMC` or AI is slow
+- [ ] confirm the presentation machine can run the chosen commit
+
+---
+
+## Current recommended live path
+
+1. Use the sample file if there is any uncertainty about business data.
+2. Use the sidebar step menu to move from `Data` to `AI`.
+3. Use `Guide` only if the audience needs a quick MMM explainer.
+4. Keep the transform defaults.
+5. Fit `OLS` and `Ridge`.
+6. Show the top metrics, validation view, and channel breakdown in `Results`.
+7. Generate one `In-depth` AI analysis if latency is acceptable.
+8. If you want to show `PyMC`, prefer loading a prepared saved state instead of fitting it live on the presentation machine.
 
 ---
 
@@ -142,10 +110,10 @@ The app is not yet implemented. The LLM builds it by following `mmm/docs/10_BUIL
 
 | Need | Go to |
 |------|-------|
-| Environment problems | `mmm/docs/02_SETUP.md` |
-| Build the app | `mmm/docs/10_BUILD_MMM.md` |
-| Data schema | `mmm/docs/04_DATA_MODEL.md` |
-| Model details | `mmm/docs/06_MODELS.md` |
-| AI credentials and prompt | `mmm/docs/09_AI_ANALYSIS.md` |
-| Demo script template | `docs/DEMO_PREP.md` |
-| Three executive questions | `docs/DECISIONS_FRAMEWORK.md` |
+| setup and troubleshooting | `mmm/docs/02_SETUP.md` |
+| engineering build history | `mmm/docs/10_BUILD_MMM.md` |
+| data schema | `mmm/docs/04_DATA_MODEL.md` |
+| model details | `mmm/docs/06_MODELS.md` |
+| AI payload and prompting | `mmm/docs/09_AI_ANALYSIS.md` |
+| demo run plan | `docs/DEMO_PREP.md` |
+| decision framing | `docs/DECISIONS_FRAMEWORK.md` |

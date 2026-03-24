@@ -2,64 +2,100 @@
 
 ## Overview
 
+```text
+csv data
+  -> validation and conversion
+  -> media transforms
+  -> model fitting
+  -> results decomposition
+  -> AI analysis and exports
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   Data      │────▶│  Transforms  │────▶│   Models    │
-│   (CSV)     │     │  Adstock +   │     │ OLS/Ridge/  │
-│             │     │  Saturation  │     │ Stretch     │
-└─────────────┘     └──────────────┘     │ PyMC        │
-                                         └──────┬──────┘
-                                                │
-                         ┌──────────────────────┼──────────────────────┐
-                         ▼                      ▼                      ▼
-                  ┌─────────────┐        ┌─────────────┐        ┌─────────────┐
-│  Results    │        │  Viz       │        │  AI         │
-│  Coef, CPL  │        │  Charts    │        │  Summary    │
-                  └─────────────┘        └─────────────┘        └─────────────┘
-```
+
+The live app is organized into a sidebar workflow with 7 numbered steps plus a separate guide section:
+
+1. `Data`
+2. `Overview`
+3. `Config`
+4. `Priors`
+5. `Fit`
+6. `Results`
+7. `AI`
+
+Separate sidebar help section:
+
+- `Guide`
 
 ---
 
 ## Components
 
-### 1. Data Layer
+### 1. Data layer
 
-- **Input:** Business data (CSV, Parquet) in `data/`
-- **Required:** Date, target (e.g. sales), media spend columns, optional controls
-- **Validation:** Shape, nulls, date range before fit
+- input source: CSV files from uploader or `data/`
+- required fields: `date`, `target`, at least one `*_spend`
+- optional fields: controls
+- validation covers missing values, duplicates, negative spend, negative target, and invalid dates
 
-### 2. Transform Layer
+### 2. Transform layer
 
-- **Adstock:** Geometric (default for hackathon); per-channel θ. Weibull documented in 05_TRANSFORMS.md for reference.
-- **Saturation:** Log first for MVP, Hill optional when the team wants more control
-- **Output:** Transformed media matrix for regression
-- **UI:** Config tab — per-channel transform type (Adstock: Geometric/None, Saturation: Log/Hill/None), then theta/alpha/k; "Apply transforms" button
+- adstock: `Geometric` or `None`
+- saturation: `Log`, `Hill`, or `None`
+- defaults: `Geometric + Log`
+- output: transformed design matrix used by all models
 
-### 3. Model Layer
+### 3. Model layer
 
-- **Frequentist MVP:** OLS, Ridge
-- **Stretch:** Lasso, ElasticNet
-- **Bayesian stretch:** PyMC — separate path, returns posterior samples
-- **Output:** Coefficients, CPL (cost per lead), contribution, (credible intervals for PyMC)
+- frequentist: `OLS`, `Ridge`, `Lasso`, `ElasticNet`
+- bayesian: `PyMC`
+- outputs: coefficients, contribution, baseline, predicted leads, CPL, fit metrics, and uncertainty for `PyMC`
 
-### 4. Presentation Layer
+### 4. Results layer
 
-- **Streamlit:** Tabs for Data / Config / Fit / Results / AI
-- **Charts:** Streamlit native (contribution, CPL, time series)
-- **Tables:** Coefficients, CPL by channel
+- comparison table across fitted models
+- top summary metrics with bounded display attribution
+- variable filtering
+- period filtering
+- stacked time-series decomposition
+- CSV and PDF export
 
-### 5. AI Layer
+### 5. AI layer
 
-- **Input:** Aggregated results (no raw rows)
-- **Providers:** one provider for MVP, optional second provider later
-- **Output:** Single-model executive summary for MVP, richer comparison and Q&A later
+- input: aggregated model outputs only
+- providers: `OpenAI` and `Anthropic`
+- modes: `Executive short` and `In-depth`
+- optional cross-model context when multiple models are fitted
+- exports: AI analysis as CSV and PDF
 
 ---
 
-## Data Flow
+## Visualization stack
 
-1. **Data tab** — User uploads or selects CSV → app validates schema → preview shown → stored in session_state
-2. **Config tab** — User selects per-channel adstock type (Geometric / None) and saturation type (Log / Hill / None), sets theta and alpha/k where applicable → clicks "Apply transforms" → transformed matrix stored in session_state
-3. **Fit tab** — User selects one or more models → clicks "Fit selected" or "Fit all" → each model fits → results stored in session_state["model_results"] keyed by model name. MVP target is OLS first, then Ridge
-4. **Results tab** — Model selector drives all views: comparison table (R², RMSE), three decision sections (What/Why/What next), and optional channel insights after the MVP is stable
-5. **AI tab** — User generates a single-model executive summary from the selected model. Compare-all and Q&A are stretch features
+- app shell: `Streamlit`
+- labeled bar charts and stacked bars: `Altair`
+- PDF generation: `matplotlib`
+
+---
+
+## Data flow
+
+1. `Data` loads and validates the file.
+2. `Overview` surfaces validated dataset diagnostics, target behavior, and multicollinearity checks.
+3. `Config` applies transforms and stores the transformed matrix.
+4. `Priors` stores Bayesian settings for `PyMC`.
+5. `Fit` runs the selected models and stores their outputs plus validation metadata.
+6. `Results` applies the selected model, channel filter, and period filter to visual outputs and exports.
+7. `AI` builds an aggregated payload from current results and generates either a short or in-depth explanation.
+
+---
+
+## Demo architecture note
+
+The safest live path is still:
+
+- sample CSV
+- default transforms
+- `OLS` and `Ridge`
+- `Results`
+- `AI`
+
+`PyMC` is available, but the safest demo path is to show it from a prepared saved state unless its latency and sampler quality have already been tested on the presentation machine.
